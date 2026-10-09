@@ -1,0 +1,12 @@
+.env
+data/
+results/*.jsonl
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+.sf/
+HANDOVER.md
+MISTRAL_PROMPT.md
+._*
+.DS_Store

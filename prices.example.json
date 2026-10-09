@@ -1,0 +1,5 @@
+{
+  "_note": "Copy to prices.json and fill in current per-million-token prices from https://mistral.ai/pricing (USD or EUR, your choice).",
+  "mistral-small-latest": {"input_per_m": 0.0, "output_per_m": 0.0},
+  "mistral-large-latest": {"input_per_m": 0.0, "output_per_m": 0.0}
+}
