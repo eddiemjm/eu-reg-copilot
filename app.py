@@ -4,7 +4,7 @@ import streamlit as st
 from regcopilot import config
 from regcopilot.index import Index
 from regcopilot.llm import get_client
-from regcopilot.rag import answer, source_url
+from regcopilot.rag import answer_stream, finalise, source_url
 
 st.set_page_config(page_title="EU AI Act & DORA Copilot", page_icon="🇪🇺", layout="wide")
 
@@ -66,13 +66,17 @@ if "history" not in st.session_state:
 question = st.chat_input("Ask a question about the AI Act or DORA") or clicked
 if question:
     try:
-        with st.spinner("Retrieving and answering..."):
-            a = answer(question, _index(embed), _client(backend), model=model, k=k)
+        with st.chat_message("user"):
+            st.write(question)
+        with st.chat_message("assistant"):
+            hits, gen, res = answer_stream(question, _index(embed), _client(backend), model=model, k=k)
+            text = st.write_stream(gen)          # renders tokens live, returns full text
+        a = finalise(question, text, hits, res)   # res is filled in now the stream is done
         st.session_state.history.append(a)
     except Exception as e:  # show setup problems clearly in the UI
         st.error(f"{type(e).__name__}: {e}")
 
-for a in reversed(st.session_state.history):
+for a in reversed(st.session_state.history[:-1] if question else st.session_state.history):
     with st.chat_message("user"):
         st.write(a.question)
     with st.chat_message("assistant"):

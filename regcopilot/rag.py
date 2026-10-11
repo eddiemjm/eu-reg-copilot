@@ -80,20 +80,25 @@ def is_refusal(text: str) -> bool:
     return "can't find this" in t or "cannot find this" in t
 
 
-def answer(question: str, index: Index, client, model: str | None = None, k: int = config.TOP_K) -> Answer:
+def prepare(question: str, index: Index, k: int = config.TOP_K):
+    """Retrieve and build the prompt. Shared by answer() and the streaming UI."""
     hits = index.search(question, k=k)
     context = build_context(hits) if hits else "(no sources found)"
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Sources:\n\n{context}\n\nQuestion: {question}"},
     ]
-    res = client.chat(messages, model=model)
-    cites = parse_citations(res.text)
+    return hits, messages
+
+
+def finalise(question: str, text: str, hits: list[Hit], res) -> Answer:
+    """Parse citations/grounding once the full text exists."""
+    cites = parse_citations(text)
     retrieved = {h.chunk["unit_id"] for h in hits}
     return Answer(
         question=question,
-        text=res.text.strip(),
-        refused=is_refusal(res.text),
+        text=text.strip(),
+        refused=is_refusal(text),
         citations=cites,
         ungrounded_citations=[c for c in cites if c not in retrieved],
         hits=hits,
@@ -102,6 +107,19 @@ def answer(question: str, index: Index, client, model: str | None = None, k: int
         completion_tokens=res.completion_tokens,
         latency_s=res.latency_s,
     )
+
+
+def answer(question: str, index: Index, client, model: str | None = None, k: int = config.TOP_K) -> Answer:
+    hits, messages = prepare(question, index, k=k)
+    res = client.chat(messages, model=model)
+    return finalise(question, res.text, hits, res)
+
+
+def answer_stream(question: str, index: Index, client, model: str | None = None, k: int = config.TOP_K):
+    """Streaming variant for the UI: returns (hits, delta_generator, result_holder)."""
+    hits, messages = prepare(question, index, k=k)
+    gen, result = client.chat_stream(messages, model=model)
+    return hits, gen, result
 
 
 def source_url(chunk: dict) -> str:

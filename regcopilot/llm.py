@@ -9,6 +9,7 @@ Plain HTTP via `requests` keeps dependencies minimal and makes the API calls eas
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -18,7 +19,6 @@ import requests
 
 from . import config
 
-
 @dataclass
 class ChatResult:
     text: str
@@ -27,6 +27,20 @@ class ChatResult:
     completion_tokens: int
     latency_s: float
 
+
+def _post_stream(url: str, payload: dict, headers: dict | None = None, timeout: int = 120):
+    """POST with SSE streaming; yield each JSON chunk as it arrives."""
+    with requests.post(url, json={**payload, "stream": True},
+                       headers=headers or {}, stream=True, timeout=timeout) as resp:
+        if resp.status_code >= 400:
+            raise RuntimeError(f"{url} returned {resp.status_code}: {resp.text[:500]}")
+        for line in resp.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data == "[DONE]":
+                return
+            yield json.loads(data)
 
 def _post(url: str, payload: dict, headers: dict | None = None, timeout: int = 120, retries: int = 6) -> dict:
     delay = 1.0
@@ -71,6 +85,29 @@ class MistralClient:
             latency_s=time.perf_counter() - t0,
         )
 
+    def chat_stream(self, messages: list[dict], model: str | None = None, temperature: float = 0.0,
+                    max_tokens: int = 700):
+        """Like chat(), but yields text deltas as they arrive. Returns (generator, ChatResult);
+        the ChatResult is filled in as the stream completes."""
+        model = model or self.default_chat_model
+        payload = {"model": model, "messages": messages, "temperature": temperature,
+                   "max_tokens": max_tokens, "stream_options": {"include_usage": True}}
+        result = ChatResult("", model, 0, 0, 0.0)
+        t0 = time.perf_counter()
+
+        def gen():
+            for data in _post_stream(f"{self.base_url}/chat/completions", payload, self.headers):
+                delta = data["choices"][0].get("delta", {}).get("content") if data.get("choices") else None
+                if delta:
+                    result.text += delta
+                    yield delta
+                if data.get("usage"):
+                    result.prompt_tokens = data["usage"].get("prompt_tokens", 0)
+                    result.completion_tokens = data["usage"].get("completion_tokens", 0)
+            result.latency_s = time.perf_counter() - t0
+
+        return gen(), result
+
     def embed(self, texts: list[str], model: str | None = None, batch_size: int = 32) -> np.ndarray:
         model = model or self.default_embed_model
         out: list[list[float]] = []
@@ -105,6 +142,35 @@ class OllamaClient:
             latency_s=time.perf_counter() - t0,
         )
 
+    def chat_stream(self, messages: list[dict], model: str | None = None, temperature: float = 0.0,
+                    max_tokens: int = 700):
+        """Streaming variant for Ollama, which sends newline-delimited JSON, not SSE."""
+        model = model or self.default_chat_model
+        payload = {"model": model, "messages": messages, "stream": True,
+                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192}}
+        result = ChatResult("", model, 0, 0, 0.0)
+        t0 = time.perf_counter()
+
+        def gen():
+            with requests.post(f"{self.base_url}/api/chat", json=payload, timeout=600,
+                               stream=True) as resp:
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"{resp.status_code}: {resp.text[:500]}")
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    delta = data.get("message", {}).get("content")
+                    if delta:
+                        result.text += delta
+                        yield delta
+                    if data.get("done"):
+                        result.prompt_tokens = data.get("prompt_eval_count", 0)
+                        result.completion_tokens = data.get("eval_count", 0)
+            result.latency_s = time.perf_counter() - t0
+
+        return gen(), result
+
     def embed(self, texts: list[str], model: str | None = None, batch_size: int = 32) -> np.ndarray:
         model = model or self.default_embed_model
         out: list[list[float]] = []
@@ -134,6 +200,15 @@ class MockClient:
             else:
                 text = f"{m.group(2).strip()[:300]} [{m.group(1)}]"
         return ChatResult(text, model or self.default_chat_model, len(prompt.split()), len(text.split()), 0.0)
+
+    def chat_stream(self, messages, model=None, temperature=0.0, max_tokens=700):
+        res = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+
+        def gen():
+            for i in range(0, len(res.text), 40):
+                yield res.text[i:i + 40]
+
+        return gen(), res
 
     def embed(self, texts: list[str], model: str | None = None, batch_size: int = 32, dim: int = 256) -> np.ndarray:
         from .bm25 import tokenize
