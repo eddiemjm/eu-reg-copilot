@@ -17,7 +17,12 @@ with st.sidebar:
     st.header("Settings")
     mode = st.radio("Where should the model run?", list(MODES))
     backend, default_model = MODES[mode]
-    model = st.text_input("Model", default_model)
+    
+    MODEL_CHOICES = {
+    "mistral": ["mistral-small-latest", "mistral-large-latest"],
+    "ollama": [config.OLLAMA_CHAT_MODEL],  # e.g. "mistral-nemo"
+}
+    model = st.selectbox("Model", MODEL_CHOICES[backend],index=MODEL_CHOICES[backend].index(default_model))
     available = Index.available()
     preferred = backend if backend in available else "none"
     embed = st.selectbox("Retrieval index", available or ["none"],
