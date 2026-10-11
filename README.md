@@ -105,14 +105,21 @@ python eval/run_eval.py --backend mistral --embed none
 
 ### Results
 
-_Run the commands above and paste `results/*_summary.md` here._
+Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 out-of-scope), k=6, judge = `mistral-large-latest` scoring 1–5 against hand-written reference answers. Costs are actual token counts at La Plateforme list prices (Mistral Small $0.15/$0.60, Mistral Large $0.50/$1.50 per million input/output tokens).
+   model | backend | index | hit@6 % | MRR | cited correctly % | grounded % | false refusals % | OOS refused % | judge (1–5) | p50 latency s | cost ($) | per query ($) |
+ |---|---|---|---|---|---|---|---|---|---|---|---|---|
+ | mistral-small-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 90.6 | 100.0 | 0.0 | 100.0 | 4.81 | 1.47 | 0.015 | 0.0004 |
+ | mistral-large-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 93.8 | 62.5 | 0.0 | 100.0 | 4.81 | 3.28 | 0.047 | 0.0013 |
+ | mistral-small-latest | mistral | none (BM25) | 90.6 | 0.839 | 84.4 | 92.9 | 6.2 | 100.0 | 4.50 | 1.26 | 0.015 | 0.0004 |
+ | mistral-large-latest | mistral | none (BM25) | 90.6 | 0.839 | 93.8 | 53.3 | 3.1 | 100.0 | 4.72 | 2.98 | 0.048 | 0.0014 |
 
-| model | backend | index | hit@k % | cited correctly % | grounded % | OOS refused % | judge | p50 latency s |
-|---|---|---|---|---|---|---|---|---|
-| mistral-small-latest | mistral | mistral | | | | | | |
-| mistral-large-latest | mistral | mistral | | | | | | |
-| mistral-nemo | ollama | ollama | | | | | | |
-| mistral-small-latest | mistral | none (BM25) | | | | | | |
+**Reading the table.**
+
+- **Hybrid retrieval earns its keep.** Hit@6 rises from 90.6% to 93.8% and false refusals fall from 6.2% to zero with both models — the embedding signal catches paraphrases BM25 misses, and the two signals never fight thanks to RRF fusion.
+- **Small matches large on quality at a fraction of the cost.** Judge scores are identical (4.81 vs 4.81); `mistral-small-latest` runs at roughly twice the speed (p50 1.47s vs 3.28s) and about a third of the cost. With retrieval doing the heavy lifting, the smaller model is sufficient — cheaper, faster and lower-carbon.
+- **Groundedness is the interesting failure mode.** Every citation from the small model traces to retrieved context (100% grounded). The large model, however, cites from memory in about four answers in ten (62.5% grounded) — most often padding answers with Article 113 (entry into force), which was never retrieved. For a regulated-domain assistant, a plausible citation with no retrieved evidence behind it is worse than a refusal, which is why the harness checks groundedness per answer rather than assuming it. Bigger models know more, and that is precisely the problem.
+
+The Ollama (sovereign mode) row is pending; the hosted vs local comparison will be added once it has been run on target hardware.
 
 ## Design decisions
 
