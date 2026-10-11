@@ -184,7 +184,10 @@ def fetch(source: str, refresh: bool = False, verbose: bool = False, get: Getter
             print(f"{short}: [{'OK' if att.ok else '--'}] {strategy:19} {att.detail}  <{att.url}>")
         if text:
             tmp = path.with_suffix(".tmp")
-            tmp.write_text(text, encoding="utf-8")
+            # newline="": write_text translates \n to \r\n on Windows, which would mangle the
+            # cached law and make the manifest's SHA-256 hash something other than the source.
+            with open(tmp, "w", encoding="utf-8", newline="") as fh:
+                fh.write(text)
             tmp.replace(path)
             _record(source, path, strategy, att.url, att.detail)
             return path
