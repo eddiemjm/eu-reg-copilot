@@ -200,6 +200,23 @@ def test_ui_without_corpus_shows_setup():
     assert any("corpus hasn't been built" in w.value for w in at.warning)
 
 
+def test_ingest_falls_back_to_committed_snapshot():
+    import json
+    import regcopilot.ingest as ig
+    from regcopilot.ingest import ingest
+    _setup_tmp()                                                  # empty data dir: no cache, no saved file
+    real_fetch = ig.fetch
+    ig.fetch = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline"))  # every route fails
+    try:
+        chunks = ingest()
+    finally:
+        ig.fetch = real_fetch
+    assert len(chunks) >= 300 and {c["source"] for c in chunks} == {"AIA", "DORA"}
+    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text())
+    assert manifest["AIA"]["strategy"] == "committed-snapshot" and len(manifest["AIA"]["sha256"]) == 64
+    assert manifest["DORA"]["strategy"] == "committed-snapshot" and "cellar" in manifest["DORA"]["url"]
+
+
 def _resp(status=200, body=b"", ctype="text/html; charset=utf-8", url=""):
     import requests
     r = requests.Response()

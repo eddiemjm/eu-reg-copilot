@@ -1,0 +1,18 @@
+{
+  "AIA": {
+    "strategy": "cellar-negotiation",
+    "url": "http://publications.europa.eu/resource/cellar/dc8116a1-3fe6-11ef-865a-01aa75ed71a1.0006.03/DOC_1",
+    "detail": "HTTP 200, 113 articles",
+    "bytes": 1262391,
+    "sha256": "8f0b656302f9864cc87e040c371f209a9d65ae1a6cecc25ca5eb737e872d721a",
+    "fetched_at": "2026-10-08T19:43:16+0100"
+  },
+  "DORA": {
+    "strategy": "cellar-negotiation",
+    "url": "http://publications.europa.eu/resource/cellar/0caf473a-85bd-11ed-9887-01aa75ed71a1.0006.03/DOC_1",
+    "detail": "HTTP 200, 64 articles",
+    "bytes": 746866,
+    "sha256": "cf50d8f023d23b2a56f535aaee0760eba7f1925ef08a9858c5c31d43d414f46b",
+    "fetched_at": "2026-10-08T19:43:18+0100"
+  }
+}

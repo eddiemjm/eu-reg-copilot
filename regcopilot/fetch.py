@@ -10,6 +10,11 @@ is built on. So we try, in order:
 3. eurlex-html         the EUR-Lex HTML page (works when the bot check doesn't trigger)
 4. saved-file          a page the user saved from a browser into data/raw/ (any filename)
 
+If every route fails, ingest() falls back to the snapshot of the chunked corpus committed
+with the repository (corpus/, see ingest.py), so a fresh clone still builds a working
+corpus when the EU's servers are unreachable or have changed. The manifest records such
+sources as 'committed-snapshot' with the original fetch's provenance.
+
 Every candidate is *validated by parsing it*: it only counts if it yields roughly the
 expected number of Articles. A bot-check page or an error page can never slip through.
 Successful downloads are cached in data/raw/ and recorded in data/raw/manifest.json with

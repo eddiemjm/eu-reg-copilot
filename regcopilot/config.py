@@ -11,6 +11,11 @@ RAW_DIR = DATA_DIR / "raw"
 CHUNKS_PATH = DATA_DIR / "chunks.json"
 INDEX_DIR = DATA_DIR / "index"
 RESULTS_DIR = ROOT / "results"
+# Committed snapshot of the chunked corpus (with its provenance manifest), so ingest can
+# fall back when the EU's servers are unreachable. EU legal texts are reusable under the
+# Commission's reuse policy.
+SNAPSHOT_CHUNKS = ROOT / "corpus" / "chunks.json"
+SNAPSHOT_MANIFEST = ROOT / "corpus" / "manifest.json"
 
 
 def _load_dotenv(path: Path = ROOT / ".env") -> None:
