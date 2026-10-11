@@ -147,7 +147,7 @@ def main() -> int:
         rows, summary = evaluate(args.backend, m, index, golden, args.k, judge_client, args.judge)
         summary["backend"], summary["index"] = args.backend, embed
         summaries.append(summary)
-        out = config.RESULTS_DIR / f"{stamp}_{args.backend}_{m.replace('/', '-')}.jsonl"
+        out = config.RESULTS_DIR / f"{stamp}_{args.backend}_{m.replace('/', '-').replace(':', '-')}.jsonl"
         out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows))
         print(f"  details -> {out}")
 

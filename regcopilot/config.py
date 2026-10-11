@@ -37,6 +37,10 @@ MISTRAL_EMBED_MODEL = os.getenv("MISTRAL_EMBED_MODEL", "mistral-embed")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "mistral-nemo")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+# Context budget for Ollama. The KV cache scales with it (~0.25 GB per 1k tokens for a 7B
+# model at f16), so machines with little unified memory need a smaller window than the
+# ~3k tokens a grounded prompt actually uses.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 
 # --- Retrieval ---
 TOP_K = int(os.getenv("TOP_K", "6"))

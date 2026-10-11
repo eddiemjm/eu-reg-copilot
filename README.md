@@ -94,11 +94,19 @@ In sovereign mode the app runs entirely on your machine. It loads no web fonts o
 
 ```bash
 brew install ollama && ollama serve          # or see ollama.com for Linux
-ollama pull mistral-nemo                     # open-weight Mistral model (or mistral-small for higher quality)
+ollama pull mistral-nemo                     # open-weight Mistral model (needs ~16 GB)
 ollama pull nomic-embed-text                 # local embedding model
 python -m regcopilot index --embed ollama
 python -m regcopilot ask "What must ICT third-party contracts include under DORA?" --backend ollama
 ```
+
+On machines with 8 GB of unified memory, use the 7B model and a smaller context window instead (`ollama pull mistral:7b`, then `OLLAMA_NUM_CTX=4096` — see below):
+
+```bash
+OLLAMA_NUM_CTX=4096 python -m regcopilot ask "What must ICT third-party contracts include under DORA?" --backend ollama --model mistral:7b
+```
+
+`OLLAMA_NUM_CTX` sets Ollama's context budget (default 8192). The KV cache grows with it — roughly a quarter of a GB per 1k tokens for a 7B model — and when weights plus cache exceed the machine's unified memory, layers spill off the GPU and inference slows dramatically: on the 8 GB Mac mini above, the same question took 166s at 8192 context and 42s at 4096, purely from the memory fit. The ~3k tokens a grounded prompt actually uses fit comfortably in 4096.
 
 In the UI, pick **Sovereign mode**. Questions, documents and embeddings then never leave the machine.
 
@@ -108,8 +116,8 @@ In the UI, pick **Sovereign mode**. Questions, documents and embeddings then nev
 # Hosted: small vs large, judged by mistral-large
 python eval/run_eval.py --backend mistral --models mistral-small-latest,mistral-large-latest --judge mistral-large-latest
 
-# Sovereign: local model and local embeddings
-python eval/run_eval.py --backend ollama --models mistral-nemo --embed ollama --judge mistral-large-latest
+# Sovereign: local model and local embeddings (as measured above on an 8 GB Mac mini)
+OLLAMA_NUM_CTX=4096 python eval/run_eval.py --backend ollama --models mistral:7b --embed ollama --judge mistral-large-latest
 
 # Retrieval ablation: keyword-only vs hybrid
 python eval/run_eval.py --backend mistral --embed none
@@ -128,7 +136,7 @@ python eval/run_eval.py --backend mistral --embed none
 
 ### Results
 
-Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 out-of-scope), k=6, judge = `mistral-large-latest` scoring 1–5 against hand-written reference answers. Costs are actual token counts at La Plateforme list prices (Mistral Small $0.15/$0.60, Mistral Large $0.50/$1.50 per million input/output tokens).
+Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 out-of-scope), k=6, judge = `mistral-large-latest` scoring 1–5 against hand-written reference answers. Costs are actual token counts at La Plateforme list prices (Mistral Small $0.15/$0.60, Mistral Large $0.50/$1.50 per million input/output tokens). The sovereign run was measured on a 2020 Mac mini (Apple M1, 8 GB): `mistral:7b` (q4_0) and `nomic-embed-text` via Ollama, context 4096, answers generated entirely on the machine — only the judge ran on the API.
 
 > **Hybrid rows are a fresh run (11 October 2026) with two fixes in place.** The citation parser now reads citations anywhere in the answer ("(DORA Art. 30(2))", not only `[square brackets]`), and system-prompt Rule 4 asks for dates only when the sources state them. The BM25-only rows predate the fixes; their `cited correctly` figures are re-scored offline from the saved answers with the fixed parser (retrieval metrics are unchanged by a parser fix). This run also added the `nonexistent cites` check: both models scored 0.
 
@@ -138,6 +146,7 @@ Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 
  | mistral-large-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 93.8 | 93.8 | 0 | 0.0 | 100.0 | 4.78 | 2.71 | 0.0465 | 0.0013 |
  | mistral-small-latest | mistral | none (BM25, re-scored) | 90.6 | 0.839 | 90.6 | 92.9 | – | 6.2 | 100.0 | 4.50 | 1.26 | 0.015 | 0.0004 |
  | mistral-large-latest | mistral | none (BM25, re-scored) | 90.6 | 0.839 | 96.9 | 53.3 | – | 3.1 | 100.0 | 4.72 | 2.98 | 0.048 | 0.0014 |
+ | mistral:7b (sovereign) | ollama | ollama (hybrid, local) | 93.8 | 0.875 | 90.6 | 96.9 | 0 | 0.0 | 66.7 | 4.69 | 43.13 | n/a | – |
 
 **Reading the table.**
 
@@ -145,6 +154,7 @@ Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 
 - **Small matches large on quality at a fraction of the cost.** Judge scores are 4.66 vs 4.78, with the caveat that `mistral-large-latest` is also the judge; `mistral-small-latest` runs at roughly twice the speed (p50 1.45s vs 2.71s) and about a third of the cost. With retrieval doing the heavy lifting, the smaller model is sufficient — cheaper, faster and lower-carbon.
 - **Groundedness is the interesting failure mode.** In the earlier runs the large model padded answers with never-retrieved entry-into-force Articles (AI Act Art. 113, DORA Art. 64) and once cited DORA Art. 99, which does not exist — 62.5% grounded. The original prompt asked the model to say "from when" each obligation applies, which invited dates the retrieval rarely supplies; Rule 4 now allows dates only when they appear in the sources. In the fresh run the large model is 93.8% grounded and invents nothing: its two ungrounded citations (AI Act Art. 3 in aia-20, DORA Art. 16 in dora-05) are real Articles cited from memory rather than from the retrieved context. The small model remains 100% grounded. For a regulated-domain assistant, a plausible citation with no retrieved evidence behind it is worse than a refusal, which is why the harness checks grounding per answer — and now separately counts citations to Articles that don't exist. Bigger models know more, and that is precisely the problem.
 
+- **Sovereign mode works, on ordinary hardware.** A 7B open-weight Mistral model on an 8 GB Mac mini — the low end of consumer machines — scores 93.8% hit (identical to both hosted models: retrieval is model-independent and misses the same two questions), judges at 4.69/5 (marginally above hosted `mistral-small`'s 4.66) and invents no Articles. The failure modes shift, instructively: it cites one Article from memory (AI Act Art. 6 in aia-13), and on one out-of-scope question it declines in substance ("I can't find the Solvency II … calibration in the provided AI Act or DORA texts") but paraphrases the fixed refusal sentence, so the exact-match refusal check scores it as answered — the OOS-refused figure is 66.7% for that reason, not because it answered the question. The price of sovereignty is latency: p50 43s vs 1.45s hosted, roughly 30× slower.
 **Failure analysis.** 30 of the 32 in-scope questions were answered correctly
 across both hosted models in the final run. The two persistent failures are both retrieval
 misses, not generation failures:
@@ -177,7 +187,7 @@ invented citations 0. The harness attributes each failure to its layer: these tw
 retrieval problems; the large model's earlier ungrounded date citations were a prompt
 problem, fixed by Rule 4.
 
-The Ollama (sovereign mode) row is pending; the hosted vs local comparison will be added once it has been run on target hardware.
+Token counts for the sovereign run are not comparable with the hosted rows (Ollama counts its own tokenizer's tokens) and its cost is n/a by design: the machine is the meter. Sovereign latency was measured with the project and corpus on the machine's internal disk; the same question over a network-mounted copy of the corpus differed by a few seconds at most, because per-question time is inference-bound, not I/O-bound.
 
 ## Design decisions
 

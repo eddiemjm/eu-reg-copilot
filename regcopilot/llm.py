@@ -139,7 +139,7 @@ class OllamaClient:
              max_tokens: int = 700, json_mode: bool = False) -> ChatResult:
         model = model or self.default_chat_model
         payload = {"model": model, "messages": messages, "stream": False,
-                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192}}
+                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": config.OLLAMA_NUM_CTX}}
         if json_mode:
             payload["format"] = "json"
         t0 = time.perf_counter()
@@ -157,7 +157,7 @@ class OllamaClient:
         """Streaming variant for Ollama, which sends newline-delimited JSON, not SSE."""
         model = model or self.default_chat_model
         payload = {"model": model, "messages": messages, "stream": True,
-                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192}}
+                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": config.OLLAMA_NUM_CTX}}
         result = ChatResult("", model, 0, 0, 0.0)
         t0 = time.perf_counter()
 

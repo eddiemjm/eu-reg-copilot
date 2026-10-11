@@ -49,7 +49,7 @@ def latest(rows: list[dict], model: str, index: str, before: str | None = None) 
 
 
 def load_rows(results_dir: Path, stamp: str, backend: str, model: str) -> list[dict] | None:
-    f = results_dir / f"{stamp}_{backend}_{model.replace('/', '-')}.jsonl"
+    f = results_dir / f"{stamp}_{backend}_{model.replace('/', '-').replace(':', '-')}.jsonl"
     if not f.exists():
         return None
     return [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
