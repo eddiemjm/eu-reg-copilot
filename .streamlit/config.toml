@@ -1,6 +1,13 @@
 [theme]
 base = "dark"
-primaryColor = "#FFCC00"
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#141D33"
-textColor = "#E8ECF4"
+primaryColor = "#FA500F"
+backgroundColor = "#0E0E10"
+secondaryBackgroundColor = "#17171B"
+textColor = "#ECECEF"
+
+[browser]
+# Streamlit sends usage statistics by default; sovereign mode means nothing leaves the machine.
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"

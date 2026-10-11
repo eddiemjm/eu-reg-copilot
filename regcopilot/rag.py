@@ -23,7 +23,14 @@ Rules:
 
 # Matched anywhere in the answer, not only inside [...]: models also write "(DORA Art. 30(2))",
 # and a citation the parser misses would also escape the grounding check.
-RE_CITE = re.compile(r"\b(AI Act|DORA)\s+(?:(Art\.?|Article)\s*(\d+[a-z]?)|(Annex)\s+([IVXLC]+))\b", re.I)
+RE_CITE = re.compile(r"\b(AI Act|DORA)\s+(?:(Articles?|Art\.?)\s*(\d+[a-z]?)|(Annex)\s+([IVXLC]+))\b", re.I)
+# A follow-on citation that inherits the regulation: "AI Act Art. 16(a), Art. 26(5)", "... and Art. 28".
+RE_CITE_CONT = re.compile(r"\s*(?:,|;|\band\b|&)\s*(?:(Articles?|Art\.?)\s*(\d+[a-z]?)|(Annex)\s+([IVXLC]+))\b", re.I)
+# After a plural head, bare numbers continue the list: "DORA Articles 28 and 30".
+RE_CITE_NUM = re.compile(r"\s*(?:,|\band\b|&)\s*(\d+[a-z]?)\b")
+# Paragraph, range and point suffixes: "Art. 28(3)", "Art. 26(5)-(12)", "Art. 5(1)(f)", "Annex III, point 5(c)".
+RE_CITE_SUFFIX = re.compile(r"(?:\(\d+[a-z]?\))*(?:\s*[-–]\s*\(\d+[a-z]?\))?(?:\([a-z]{1,4}\))*"
+                            r"(?:,?\s*points?\s+\d+(?:\([a-z]{1,4}\))*)?")
 
 
 @dataclass
@@ -64,11 +71,31 @@ def build_context(hits: list[Hit]) -> str:
     return "\n\n".join(blocks)
 
 
-def parse_citations(text: str) -> list[str]:
-    ids: list[str] = []
+def iter_citations(text: str):
+    """Yield (start, end, unit_id) for every citation, including follow-ons that inherit the
+    regulation: "AI Act Art. 16(a), Art. 26(5)" -> AIA-Art-16 and AIA-Art-26."""
     for m in RE_CITE.finditer(text):
         src = SHORT_TO_KEY[m.group(1).lower()]
         uid = f"{src}-Art-{m.group(3).lower()}" if m.group(3) else f"{src}-Annex-{m.group(5).upper()}"
+        end = RE_CITE_SUFFIX.match(text, m.end()).end()
+        yield m.start(), end, uid
+        plural = (m.group(2) or "").lower() == "articles"
+        while True:
+            if c := RE_CITE_CONT.match(text, end):
+                plural = (c.group(1) or "").lower() == "articles"
+                uid = f"{src}-Art-{c.group(2).lower()}" if c.group(2) else f"{src}-Annex-{c.group(4).upper()}"
+                start = c.start(1) if c.group(1) else c.start(3)
+            elif plural and (c := RE_CITE_NUM.match(text, end)):
+                uid, start = f"{src}-Art-{c.group(1).lower()}", c.start(1)
+            else:
+                break
+            end = RE_CITE_SUFFIX.match(text, c.end()).end()
+            yield start, end, uid
+
+
+def parse_citations(text: str) -> list[str]:
+    ids: list[str] = []
+    for _, _, uid in iter_citations(text):
         if uid not in ids:
             ids.append(uid)
     return ids

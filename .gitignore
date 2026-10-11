@@ -1,6 +1,8 @@
 .env
 data/
 results/*.jsonl
+# keep the latest run so the Evaluation page can show every question on a fresh clone
+!results/20261011-185938_*.jsonl
 __pycache__/
 *.pyc
 .venv/

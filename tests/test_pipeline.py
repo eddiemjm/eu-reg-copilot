@@ -94,6 +94,12 @@ def test_citation_parsing():
     assert parse_citations("Contracts must set SLAs (DORA Art. 30(2)) and exit plans (DORA Article 28(8)).") \
         == ["DORA-Art-30", "DORA-Art-28"]
     assert parse_citations("The DORA article in question and the AI Act annex cover this.") == []
+    # follow-on citations inherit the regulation, so they're checked too
+    assert parse_citations("AI Act Art. 16(a), Art. 26(5)") == ["AIA-Art-16", "AIA-Art-26"]
+    assert parse_citations("AI Act Articles 9, 10 and 15(1)") == ["AIA-Art-9", "AIA-Art-10", "AIA-Art-15"]
+    assert parse_citations("AI Act Art. 5 and DORA Art. 28") == ["AIA-Art-5", "DORA-Art-28"]
+    assert parse_citations("AI Act Art. 26(5), (6), (7)") == ["AIA-Art-26"]
+    assert parse_citations("under DORA Art. 19, 30 days later") == ["DORA-Art-19"]
     assert is_refusal("I can’t find this in the AI Act or DORA texts I have.")
 
 
@@ -114,6 +120,84 @@ def test_eval_metrics_on_mock():
     assert summary["hit@k %"] == 100.0, summary
     assert summary["grounded %"] == 100.0
     assert "| model |" in to_markdown([summary])
+
+
+def test_citation_pills():
+    from ui.render import citation_html
+    text = ("Assess impact [AI Act Art. 27(1); DORA Art. 28(3)], set SLAs (DORA Art. 30(2)), see [DORA Art. 99]. "
+            "<script>alert(1)</script> costs $5")
+    out = citation_html(text, retrieved={"AIA-Art-27", "DORA-Art-30"},
+                        known={"AIA-Art-27", "DORA-Art-28", "DORA-Art-30"})
+    assert '<span class="rc-pill ok"' in out and "✓ AI Act Art. 27(1)</span>" in out
+    assert '<span class="rc-pill missing"' in out and "! DORA Art. 28(3)</span>" in out
+    assert "✓ DORA Art. 30(2)</span>)" in out                     # parenthesised citation, suffix kept
+    assert '<span class="rc-pill invented"' in out                # DORA has 64 Articles
+    assert "<script>" not in out and "&lt;script&gt;" in out and "\\$5" in out
+    assert "\n" not in out                                        # a blank line would let Markdown split the tags
+    ranged = citation_html("logging [AI Act Art. 26(5)-(12)].", retrieved={"AIA-Art-26"})
+    assert "✓ AI Act Art. 26(5)-(12)</span>." in ranged and "[" not in ranged  # whole range in one pill
+
+
+def test_summary_parsing_old_and_new_columns():
+    from ui import results
+    old = "| model | n | hit@k % | grounded % | cost | backend | index |\n|---|---|---|---|---|---|---|\n" \
+          "| mistral-small-latest | 35 | 90.6 | 100.0 | n/a | mistral | none |"
+    new = "| model | n | hit@k % | grounded % | nonexistent cites | cost | backend | index |\n|---|---|---|---|---|---|---|---|\n" \
+          "| mistral-small-latest | 35 | 93.8 | 100.0 | 0 | 0.0147 | mistral | mistral |"
+    d = Path(tempfile.mkdtemp())
+    (d / "20261009-131917_summary.md").write_text(old)
+    (d / "20261011-185938_summary.md").write_text(new)
+    (d / "notes_summary.md").write_text(new)                      # not a run: ignored
+    rows = results.load_summaries(d)
+    assert [r["stamp"] for r in rows] == ["20261009-131917", "20261011-185938"]
+    assert rows[0]["cost"] is None and "nonexistent cites" not in rows[0]
+    assert rows[1]["nonexistent cites"] == 0 and rows[1]["index"] == "mistral"
+    assert results.latest(rows, "mistral-small-latest", "mistral")["hit@k %"] == 93.8
+    assert results.latest(rows, "mistral-small-latest", "none", before="20261009-131917") is None
+
+
+def _app():
+    from streamlit.testing.v1 import AppTest
+    return AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
+
+
+def test_ui_pages_render_offline():
+    import json
+    import os
+    import streamlit
+    if tuple(int(x) for x in streamlit.__version__.split(".")[:2]) < (1, 55):
+        # AppTest before 1.55 can't rerun an app with a multi-character st.segmented_control option.
+        return f"needs Streamlit's AppTest >= 1.55 (have {streamlit.__version__})"
+    os.environ["REGCOPILOT_UI_MOCK"] = "1"
+    _setup_tmp()
+    from regcopilot.index import Index
+    from regcopilot.ingest import ingest
+    ingest(html_paths={"AIA": FIX / "AIA_sample.html", "DORA": FIX / "DORA_sample.html"})
+    Index.build(json.loads(config.CHUNKS_PATH.read_text()), "mock")
+    at = _app()
+    at.run()
+    for page in ("ui/views/compare.py", "ui/views/evaluation.py", "ui/views/how.py"):
+        assert not at.exception, [e.message for e in at.exception]
+        at.switch_page(page).run()
+    assert not at.exception, [e.message for e in at.exception]
+
+    # Ask a question end to end with the mock model: pills, badge and evidence all render.
+    at = _app()
+    at.session_state["mode"] = "Offline mock"
+    at.run()
+    at.button(key="ex-1").click().run()
+    assert not at.exception, [e.message for e in at.exception]
+    history = at.session_state["history"]
+    assert len(history) == 1 and history[0].citations
+    assert any("rc-pill" in m.value for m in at.markdown)
+
+
+def test_ui_without_corpus_shows_setup():
+    _setup_tmp()                                                  # fresh empty data dir
+    at = _app()
+    at.run()
+    assert not at.exception, [e.message for e in at.exception]
+    assert any("corpus hasn't been built" in w.value for w in at.warning)
 
 
 def _resp(status=200, body=b"", ctype="text/html; charset=utf-8", url=""):
@@ -176,7 +260,9 @@ def test_fetch_uses_browser_saved_file_then_fails_cleanly():
 
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
+    skipped = 0
     for t in tests:
-        t()
-        print("PASS", t.__name__)
-    print(f"{len(tests)} tests passed")
+        reason = t()  # a test returns a reason string to mark itself skipped
+        skipped += bool(reason)
+        print(f"SKIP {t.__name__}: {reason}" if reason else f"PASS {t.__name__}")
+    print(f"{len(tests) - skipped} tests passed" + (f", {skipped} skipped" if skipped else ""))

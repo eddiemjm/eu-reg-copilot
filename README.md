@@ -45,7 +45,7 @@ flowchart LR
 | Retrieval | `index.py`, `bm25.py` | BM25 + dense embeddings fused with Reciprocal Rank Fusion. Named references ("DORA Article 28") are looked up directly. |
 | Generation | `rag.py`, `llm.py` | Strict grounding prompt with a fixed refusal sentence. One client interface for `mistral`, `ollama` and an offline `mock`. Plain HTTP, no SDK lock-in. |
 | Evaluation | `eval/` | 32 in-scope and 3 out-of-scope questions with expected Articles and reference answers. Optional LLM-as-judge. |
-| UI | `app.py` | Streamlit app with a hosted/sovereign toggle, streaming answers, live citation verification chips, retrieval status and a source viewer with BM25/dense ranks and EUR-Lex links. |
+| UI | `app.py`, `ui/` | Streamlit app with four pages: Ask (streamed answers with every citation checked inline), Compare models, Evaluation and How it works. See [The app](#the-app). |
 
 ## Quick start (macOS / Linux)
 
@@ -69,6 +69,26 @@ streamlit run app.py
 ```bash
 python -m regcopilot fetch --refresh -v   # show every route tried and which one worked
 ```
+
+## The app
+
+`streamlit run app.py` opens four pages.
+
+**Ask.** Answers stream in, and every citation in them becomes a pill once the answer is complete. A green pill means the cited Article was among the passages the model was given; an amber one means it wasn't; a red, struck-through one means the Article doesn't exist. Hovering a pill shows the Article's title and opening text. The evidence column lists each retrieved Article with its BM25 and dense ranks, marks the ones the answer cited, and shows the passage on demand.
+
+![Ask: an answer with verified citation pills and the evidence beside it](docs/ui-ask.png)
+
+**Compare models.** One question, retrieved once, answered by two models side by side, so any difference comes from the model alone: what it cites, whether those citations were in its sources, latency and cost.
+
+![Compare: mistral-small and mistral-large on the same sources](docs/ui-compare.png)
+
+**Evaluation.** The golden-set results for each model and index, how they changed across runs, and every question's answer with its citations checked, its expected Articles and the judge's reasoning.
+
+![Evaluation: grounding across runs, before and after the prompt fix](docs/ui-evaluation.png)
+
+**How it works.** The pipeline, the design decisions, the corpus with its provenance hashes, and a retrieval inspector that shows how BM25 and dense ranks fuse for any query.
+
+In sovereign mode the app runs entirely on your machine. It loads no web fonts or CDN assets, the favicon is drawn locally, and Streamlit's usage statistics are switched off in `.streamlit/config.toml`. The hybrid index built with `mistral-embed` isn't offered in sovereign mode, because using it would send every query to the API.
 
 ### Sovereign mode (everything local)
 
