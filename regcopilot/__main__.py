@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="use a local HTML file, e.g. --html AIA ./ai_act.html")
     pi.add_argument("--recitals", action="store_true", help="also index recitals")
     pi.add_argument("--max-words", type=int, default=config.MAX_CHUNK_WORDS)
+    pi.add_argument("--snapshot", action="store_true",
+                    help="use the committed corpus snapshot instead of fetching (reproduces the published eval corpus)")
 
     px = sub.add_parser("index", help="build the embedding index")
     px.add_argument("--embed", default="mistral", choices=["mistral", "ollama", "mock", "none"])
@@ -54,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         from .ingest import ingest
         html = {s.upper(): Path(path) for s, path in (args.html or [])}
         ingest(html_paths=html, include_recitals=args.recitals, max_words=args.max_words,
-               refresh=args.refresh, verbose=args.verbose)
+               refresh=args.refresh, verbose=args.verbose, snapshot=args.snapshot)
     elif args.cmd == "index":
         from .index import Index, load_chunks
         idx = Index.build(load_chunks(), args.embed, args.model)

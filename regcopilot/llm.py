@@ -127,6 +127,19 @@ class MistralClient:
         return np.asarray(out, dtype=np.float32)
 
 
+def _ollama_options(messages: list[dict], temperature: float, max_tokens: int) -> dict:
+    """Ollama options for /api/chat. Ollama truncates prompts beyond num_ctx without an
+    error - which would silently drop the grounding rules and sources - so refuse instead."""
+    est_tokens = sum(len(m.get("content", "")) for m in messages) // 4 + max_tokens  # ~4 chars/token
+    if est_tokens > config.OLLAMA_NUM_CTX:
+        raise RuntimeError(
+            f"the prompt needs roughly {est_tokens:,} tokens but OLLAMA_NUM_CTX is "
+            f"{config.OLLAMA_NUM_CTX}. Ollama would truncate it silently, losing sources "
+            "and grounding rules. Raise OLLAMA_NUM_CTX (mind the memory it costs) or "
+            "retrieve fewer sources (k).")
+    return {"temperature": temperature, "num_predict": max_tokens, "num_ctx": config.OLLAMA_NUM_CTX}
+
+
 class OllamaClient:
     name = "ollama"
 
@@ -139,7 +152,7 @@ class OllamaClient:
              max_tokens: int = 700, json_mode: bool = False) -> ChatResult:
         model = model or self.default_chat_model
         payload = {"model": model, "messages": messages, "stream": False,
-                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": config.OLLAMA_NUM_CTX}}
+                   "options": _ollama_options(messages, temperature, max_tokens)}
         if json_mode:
             payload["format"] = "json"
         t0 = time.perf_counter()
@@ -157,7 +170,7 @@ class OllamaClient:
         """Streaming variant for Ollama, which sends newline-delimited JSON, not SSE."""
         model = model or self.default_chat_model
         payload = {"model": model, "messages": messages, "stream": True,
-                   "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": config.OLLAMA_NUM_CTX}}
+                   "options": _ollama_options(messages, temperature, max_tokens)}
         result = ChatResult("", model, 0, 0, 0.0)
         t0 = time.perf_counter()
 

@@ -28,7 +28,7 @@ def load_chunks(path: Path | None = None) -> list[dict]:
     path = path or config.CHUNKS_PATH
     if not path.exists():
         raise FileNotFoundError(f"{path} not found. Run: python -m regcopilot ingest")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class Index:
@@ -66,7 +66,7 @@ class Index:
         (d / "meta.json").write_text(json.dumps({
             "embed_backend": self.embed_backend, "embed_model": self.embed_model,
             "n_chunks": len(self.chunks), "chunk_ids": [c["chunk_id"] for c in self.chunks],
-        }, indent=2))
+        }, indent=2), encoding="utf-8")
         if self.vectors is not None:
             np.save(d / "vectors.npy", self.vectors)
         return d
@@ -79,7 +79,7 @@ class Index:
         d = config.INDEX_DIR / embed_backend
         if not (d / "meta.json").exists():
             raise FileNotFoundError(f"No '{embed_backend}' index. Run: python -m regcopilot index --embed {embed_backend}")
-        meta = json.loads((d / "meta.json").read_text())
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         if meta["chunk_ids"] != [c["chunk_id"] for c in chunks]:
             raise RuntimeError("Index is out of date with data/chunks.json - rebuild it.")
         return cls(chunks, np.load(d / "vectors.npy"), embed_backend, meta["embed_model"])

@@ -37,7 +37,7 @@ def load_summaries(results_dir: Path) -> list[dict]:
     for f in sorted(results_dir.glob("*_summary.md")):
         m = RE_SUMMARY.match(f.name)
         if m:
-            rows += [{**r, "stamp": m.group(1)} for r in parse_summary(f.read_text())]
+            rows += [{**r, "stamp": m.group(1)} for r in parse_summary(f.read_text(encoding="utf-8"))]
     return rows
 
 
@@ -52,7 +52,7 @@ def load_rows(results_dir: Path, stamp: str, backend: str, model: str) -> list[d
     f = results_dir / f"{stamp}_{backend}_{model.replace('/', '-').replace(':', '-')}.jsonl"
     if not f.exists():
         return None
-    return [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+    return [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 def run_label(stamp: str) -> str:

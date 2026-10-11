@@ -56,9 +56,9 @@ st.markdown("#### The corpus")
 if not config.CHUNKS_PATH.exists():
     st.info("Not built yet: run `python -m regcopilot ingest`.")
 else:
-    chunks = json.loads(config.CHUNKS_PATH.read_text())
+    chunks = json.loads(config.CHUNKS_PATH.read_text(encoding="utf-8"))
     manifest_path = config.RAW_DIR / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     cols = st.columns(len(SOURCES))
     for col, (key, src) in zip(cols, SOURCES.items()):
         units = Counter(c_["kind"] for c_ in {c_["unit_id"]: c_ for c_ in chunks if c_["source"] == key}.values())

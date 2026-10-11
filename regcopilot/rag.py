@@ -101,9 +101,17 @@ def parse_citations(text: str) -> list[str]:
     return ids
 
 
+# A refusal declines to answer from the texts. A decline can be paraphrased ("I can't find
+# the X in the provided AI Act or DORA texts"), so the decline is a pattern, not a fixed
+# sentence - but a decline followed by figures (percentages, money, millions) means the
+# model answered from memory after refusing, which is a failure, not a refusal.
+RE_DECLINE = re.compile(r"can(?:'t|not)\s+find\b[^.]*\b(?:texts?|sources?)", re.I)
+RE_OUTSIDE_FACT = re.compile(r"\d+\s*%|eur\s*[\d,.]+|€\s*[\d,.]+|\b(?:million|billion)\b", re.I)
+
+
 def is_refusal(text: str) -> bool:
     t = text.lower().replace("’", "'")
-    return "can't find this" in t or "cannot find this" in t
+    return bool(RE_DECLINE.search(t)) and not RE_OUTSIDE_FACT.search(t)
 
 
 def prepare(question: str, index: Index, k: int = config.TOP_K):

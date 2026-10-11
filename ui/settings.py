@@ -55,7 +55,7 @@ def _installed(name: str, models: list[str]) -> bool:
 
 @st.cache_data(show_spinner=False)
 def corpus_stats(mtime: float) -> dict:
-    chunks = json.loads(config.CHUNKS_PATH.read_text())
+    chunks = json.loads(config.CHUNKS_PATH.read_text(encoding="utf-8"))
     return {"chunks": len(chunks), "units": len({c["unit_id"] for c in chunks})}
 
 

@@ -153,13 +153,13 @@ def _saved_file(source: str) -> Path | None:
 
 def _record(source: str, path: Path, strategy: str, url: str, detail: str) -> None:
     mpath = config.RAW_DIR / "manifest.json"
-    manifest = json.loads(mpath.read_text()) if mpath.exists() else {}
+    manifest = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else {}
     data = path.read_bytes()
     manifest[source] = {
         "strategy": strategy, "url": url, "detail": detail, "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(), "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
-    mpath.write_text(json.dumps(manifest, indent=2))
+    mpath.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def fetch(source: str, refresh: bool = False, verbose: bool = False, get: Getter | None = None,

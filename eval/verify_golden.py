@@ -17,7 +17,7 @@ GOLDEN = Path(__file__).with_name("golden.jsonl")
 
 
 def load_golden(path: Path = GOLDEN) -> list[dict]:
-    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 def verify(golden: list[dict], chunks: list[dict]) -> list[str]:

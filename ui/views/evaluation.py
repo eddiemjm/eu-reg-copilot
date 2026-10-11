@@ -129,6 +129,9 @@ with right:
                   f"{h['false refusals %'] - b['false refusals %']:+.1f} pts vs BM25", delta_color="inverse")
         st.caption(f"{model}. With 32 in-scope questions, one question moves these by 3.1 points, "
                    "so read them as a direction rather than a measured effect.")
+    elif model not in ("mistral-small-latest", "mistral-large-latest"):
+        st.caption("The hybrid-vs-BM25 ablation was measured on the hosted models (switch the "
+                   "configuration to see it). Sovereign mode embeds locally, so it isn't comparable.")
     else:
         st.caption("Run the eval with `--embed none` as well to see the ablation.")
 
@@ -145,7 +148,7 @@ if detail is None:
             "Run the eval to generate them.")
     st.stop()
 
-golden = {g["id"]: g for g in map(json.loads, (config.ROOT / "eval" / "golden.jsonl").read_text().splitlines())}
+golden = {g["id"]: g for g in map(json.loads, (config.ROOT / "eval" / "golden.jsonl").read_text(encoding="utf-8").splitlines())}
 
 
 def _outcome(r: dict) -> tuple[bool, str]:

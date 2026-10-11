@@ -25,7 +25,7 @@ def _setup_tmp():
 
 def test_parse_structure():
     from regcopilot.parse import parse_units
-    units = {u.unit_id: u for u in parse_units((FIX / "AIA_sample.html").read_text(), "AIA", include_recitals=True)}
+    units = {u.unit_id: u for u in parse_units((FIX / "AIA_sample.html").read_text(encoding="utf-8"), "AIA", include_recitals=True)}
     assert {"AIA-Art-3", "AIA-Art-4", "AIA-Art-5", "AIA-Art-27", "AIA-Art-99", "AIA-Annex-III"} <= set(units)
     assert "AIA-Rec-1" in units and "AIA-Rec-2" in units
     assert units["AIA-Art-5"].title == "Prohibited AI practices"
@@ -40,7 +40,7 @@ def test_parse_structure():
 
 def test_chunking_respects_units_and_paragraphs():
     from regcopilot.parse import chunk_units, parse_units
-    units = parse_units((FIX / "AIA_sample.html").read_text(), "AIA")
+    units = parse_units((FIX / "AIA_sample.html").read_text(encoding="utf-8"), "AIA")
     chunks = chunk_units(units, max_words=120)
     art27 = [c for c in chunks if c.unit_id == "AIA-Art-27"]
     assert len(art27) >= 2, "long Article should be split"
@@ -57,7 +57,7 @@ def test_ingest_index_search_and_answer():
     from regcopilot.rag import answer
     ingest(html_paths={"AIA": FIX / "AIA_sample.html", "DORA": FIX / "DORA_sample.html"})
     for embed in ("none", "mock"):
-        idx = Index.build(__import__("json").loads(config.CHUNKS_PATH.read_text()), embed)
+        idx = Index.build(__import__("json").loads(config.CHUNKS_PATH.read_text(encoding="utf-8")), embed)
         assert Index.load(embed).chunks
         top = [h.chunk["unit_id"] for h in idx.search("How often is threat-led penetration testing required?", k=3)]
         assert top[0] == "DORA-Art-26", top
@@ -101,6 +101,15 @@ def test_citation_parsing():
     assert parse_citations("AI Act Art. 26(5), (6), (7)") == ["AIA-Art-26"]
     assert parse_citations("under DORA Art. 19, 30 days later") == ["DORA-Art-19"]
     assert is_refusal("I can’t find this in the AI Act or DORA texts I have.")
+    # paraphrased refusal scores as a refusal
+    assert is_refusal("I can't find the Solvency II calibration in the provided AI Act or DORA texts. "
+                      "The sources provided pertain to digital operational resilience.")
+    # declining and then answering from memory is a failure, not a refusal
+    assert not is_refusal("I can't find this in the AI Act or DORA texts I have. The maximum fine under "
+                          "the GDPR is 4% of global annual turnover or EUR 20 million.")
+    # describing what the sources don't contain, without figures, is still a refusal
+    assert is_refusal("I can't find this in the AI Act or DORA texts I have. The sources provided do "
+                      "not contain information about the 2022 FIFA World Cup.")
 
 
 def test_eval_metrics_on_mock():
@@ -112,7 +121,7 @@ def test_eval_metrics_on_mock():
     from run_eval import evaluate, to_markdown
     from verify_golden import load_golden, verify
     ingest(html_paths={"AIA": FIX / "AIA_sample.html", "DORA": FIX / "DORA_sample.html"})
-    chunks = json.loads(config.CHUNKS_PATH.read_text())
+    chunks = json.loads(config.CHUNKS_PATH.read_text(encoding="utf-8"))
     golden = [g for g in load_golden() if g["id"] in {"aia-03", "aia-07", "aia-16", "dora-05", "dora-07", "dora-09"}]
     assert not verify(golden, chunks), verify(golden, chunks)
     idx = Index.build(chunks, "mock")
@@ -145,9 +154,9 @@ def test_summary_parsing_old_and_new_columns():
     new = "| model | n | hit@k % | grounded % | nonexistent cites | cost | backend | index |\n|---|---|---|---|---|---|---|---|\n" \
           "| mistral-small-latest | 35 | 93.8 | 100.0 | 0 | 0.0147 | mistral | mistral |"
     d = Path(tempfile.mkdtemp())
-    (d / "20261009-131917_summary.md").write_text(old)
-    (d / "20261011-185938_summary.md").write_text(new)
-    (d / "notes_summary.md").write_text(new)                      # not a run: ignored
+    (d / "20261009-131917_summary.md").write_text(old, encoding="utf-8")
+    (d / "20261011-185938_summary.md").write_text(new, encoding="utf-8")
+    (d / "notes_summary.md").write_text(new, encoding="utf-8")                      # not a run: ignored
     rows = results.load_summaries(d)
     assert [r["stamp"] for r in rows] == ["20261009-131917", "20261011-185938"]
     assert rows[0]["cost"] is None and "nonexistent cites" not in rows[0]
@@ -173,7 +182,7 @@ def test_ui_pages_render_offline():
     from regcopilot.index import Index
     from regcopilot.ingest import ingest
     ingest(html_paths={"AIA": FIX / "AIA_sample.html", "DORA": FIX / "DORA_sample.html"})
-    Index.build(json.loads(config.CHUNKS_PATH.read_text()), "mock")
+    Index.build(json.loads(config.CHUNKS_PATH.read_text(encoding="utf-8")), "mock")
     at = _app()
     at.run()
     for page in ("ui/views/compare.py", "ui/views/evaluation.py", "ui/views/how.py"):
@@ -212,9 +221,42 @@ def test_ingest_falls_back_to_committed_snapshot():
     finally:
         ig.fetch = real_fetch
     assert len(chunks) >= 300 and {c["source"] for c in chunks} == {"AIA", "DORA"}
-    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text())
+    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["AIA"]["strategy"] == "committed-snapshot" and len(manifest["AIA"]["sha256"]) == 64
     assert manifest["DORA"]["strategy"] == "committed-snapshot" and "cellar" in manifest["DORA"]["url"]
+
+
+def test_ingest_snapshot_mode():
+    import json
+    from regcopilot.ingest import ingest
+    _setup_tmp()
+    chunks = ingest(snapshot=True)                                # deliberate snapshot, no fetch
+    assert len(chunks) >= 300 and {c["source"] for c in chunks} == {"AIA", "DORA"}
+    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert all(manifest[s]["strategy"] == "committed-snapshot" for s in ("AIA", "DORA"))
+    # the snapshot has one fixed chunk size: asking for a different one must refuse, not degrade
+    try:
+        ingest(snapshot=True, max_words=100)
+        raise AssertionError("should have refused")
+    except RuntimeError as e:
+        assert "max_words" in str(e)
+
+
+def test_ollama_context_guard():
+    import regcopilot.llm as llm_mod
+    from regcopilot.llm import _ollama_options
+    msgs = [{"role": "user", "content": "x" * 4000}]              # ~1,000 estimated tokens
+    opts = _ollama_options(msgs, temperature=0.0, max_tokens=700)
+    assert opts["num_ctx"] == config.OLLAMA_NUM_CTX and opts["num_predict"] == 700
+    old = config.OLLAMA_NUM_CTX
+    config.OLLAMA_NUM_CTX = 1000                                  # prompt + 700 max tokens > 1000
+    try:
+        _ollama_options(msgs, temperature=0.0, max_tokens=700)
+        raise AssertionError("should have refused a prompt that would be truncated")
+    except RuntimeError as e:
+        assert "truncat" in str(e) and "OLLAMA_NUM_CTX" in str(e)
+    finally:
+        config.OLLAMA_NUM_CTX = old
 
 
 def _resp(status=200, body=b"", ctype="text/html; charset=utf-8", url=""):
@@ -251,7 +293,7 @@ def test_fetch_falls_back_and_validates():
 
     path = fetch("AIA", get=fake_get, min_articles=3)
     assert path.read_bytes() == law
-    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text())
+    manifest = json.loads((config.RAW_DIR / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["AIA"]["strategy"] == "cellar-negotiation" and len(manifest["AIA"]["sha256"]) == 64
     # cached copy is reused without any network call
     calls.clear()

@@ -148,11 +148,11 @@ def main() -> int:
         summary["backend"], summary["index"] = args.backend, embed
         summaries.append(summary)
         out = config.RESULTS_DIR / f"{stamp}_{args.backend}_{m.replace('/', '-').replace(':', '-')}.jsonl"
-        out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows))
+        out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
         print(f"  details -> {out}")
 
     md = to_markdown(summaries)
-    (config.RESULTS_DIR / f"{stamp}_summary.md").write_text(md + "\n")
+    (config.RESULTS_DIR / f"{stamp}_summary.md").write_text(md + "\n", encoding="utf-8")
     print("\n" + md)
     return 0
 

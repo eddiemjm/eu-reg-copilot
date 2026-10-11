@@ -14,5 +14,8 @@
     "bytes": 746866,
     "sha256": "cf50d8f023d23b2a56f535aaee0760eba7f1925ef08a9858c5c31d43d414f46b",
     "fetched_at": "2026-10-08T19:43:18+0100"
+  },
+  "_snapshot": {
+    "max_words": 350
   }
 }
