@@ -1,0 +1,3 @@
+# Normalize line endings: LF in the repo and LF on checkout everywhere, so tests and
+# parsers see identical text on macOS, Linux and Windows.
+* text=auto eol=lf
