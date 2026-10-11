@@ -17,12 +17,13 @@ Rules:
 1. Use ONLY the sources provided in the user message. Do not use outside knowledge.
 2. Cite every claim with the source label in square brackets, exactly as written in the source header, optionally with a paragraph or point, e.g. [AI Act Art. 27(1)] or [DORA Art. 28(3)].
 3. If the sources do not answer the question, reply with exactly: "{REFUSAL}" and nothing else.
-4. Be precise about who an obligation applies to (provider, deployer, financial entity, ICT third-party service provider) and from when.
+4. Be precise about who an obligation applies to (provider, deployer, financial entity, ICT third-party service provider). State dates or deadlines only if they appear in the sources.
 5. Be concise: at most 200 words. Use British English.
 """
 
-RE_CITE_BLOCK = re.compile(r"\[([^\[\]]{3,120})\]")
-RE_CITE = re.compile(r"(AI Act|DORA)\s+(Art\.?|Article|Annex)\s*(\d+[a-z]?|[IVXLC]+)", re.I)
+# Matched anywhere in the answer, not only inside [...]: models also write "(DORA Art. 30(2))",
+# and a citation the parser misses would also escape the grounding check.
+RE_CITE = re.compile(r"\b(AI Act|DORA)\s+(?:(Art\.?|Article)\s*(\d+[a-z]?)|(Annex)\s+([IVXLC]+))\b", re.I)
 
 
 @dataclass
@@ -32,6 +33,7 @@ class Answer:
     refused: bool
     citations: list[str]                 # unit ids cited, e.g. ["AIA-Art-27"]
     ungrounded_citations: list[str]      # cited but not in the retrieved context
+    nonexistent_citations: list[str] = field(default_factory=list)  # cited but not in the regulation at all
     hits: list[Hit] = field(default_factory=list)
     model: str = ""
     prompt_tokens: int = 0
@@ -64,14 +66,11 @@ def build_context(hits: list[Hit]) -> str:
 
 def parse_citations(text: str) -> list[str]:
     ids: list[str] = []
-    for block in RE_CITE_BLOCK.findall(text):
-        for m in RE_CITE.finditer(block):
-            src = SHORT_TO_KEY[m.group(1).lower()]
-            kind = "Annex" if m.group(2).lower() == "annex" else "Art"
-            num = m.group(3).upper() if kind == "Annex" else m.group(3).lower()
-            uid = f"{src}-{kind}-{num}"
-            if uid not in ids:
-                ids.append(uid)
+    for m in RE_CITE.finditer(text):
+        src = SHORT_TO_KEY[m.group(1).lower()]
+        uid = f"{src}-Art-{m.group(3).lower()}" if m.group(3) else f"{src}-Annex-{m.group(5).upper()}"
+        if uid not in ids:
+            ids.append(uid)
     return ids
 
 
@@ -91,8 +90,9 @@ def prepare(question: str, index: Index, k: int = config.TOP_K):
     return hits, messages
 
 
-def finalise(question: str, text: str, hits: list[Hit], res) -> Answer:
-    """Parse citations/grounding once the full text exists."""
+def finalise(question: str, text: str, hits: list[Hit], res, known_units: set[str] | None = None) -> Answer:
+    """Parse citations/grounding once the full text exists. `known_units` (every unit id in the
+    corpus) separates invented Articles from real ones that just weren't retrieved."""
     cites = parse_citations(text)
     retrieved = {h.chunk["unit_id"] for h in hits}
     return Answer(
@@ -101,6 +101,7 @@ def finalise(question: str, text: str, hits: list[Hit], res) -> Answer:
         refused=is_refusal(text),
         citations=cites,
         ungrounded_citations=[c for c in cites if c not in retrieved],
+        nonexistent_citations=[c for c in cites if known_units is not None and c not in known_units],
         hits=hits,
         model=res.model,
         prompt_tokens=res.prompt_tokens,
@@ -112,7 +113,7 @@ def finalise(question: str, text: str, hits: list[Hit], res) -> Answer:
 def answer(question: str, index: Index, client, model: str | None = None, k: int = config.TOP_K) -> Answer:
     hits, messages = prepare(question, index, k=k)
     res = client.chat(messages, model=model)
-    return finalise(question, res.text, hits, res)
+    return finalise(question, res.text, hits, res, known_units=index.unit_ids)
 
 
 def answer_stream(question: str, index: Index, client, model: str | None = None, k: int = config.TOP_K):

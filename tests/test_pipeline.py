@@ -68,8 +68,21 @@ def test_ingest_index_search_and_answer():
         assert top[0] == "DORA-Art-28", top
         top = [h.chunk["unit_id"] for h in idx.search("Summarise Annex III of the AI Act", k=2)]
         assert top[0] == "AIA-Annex-III", top
+        # a long named Article can't take every slot
+        hits = idx.search("What does AI Act Article 27 say about insurers?", k=3)
+        units = [h.chunk["unit_id"] for h in hits]
+        assert units[0] == "AIA-Art-27" and units.count("AIA-Art-27") == 1, units
     a = answer("Who is responsible for ICT risk?", Index.load("mock"), MockClient(), k=3)
-    assert a.citations and not a.ungrounded_citations and not a.refused
+    assert a.citations and not a.ungrounded_citations and not a.refused and not a.nonexistent_citations
+
+
+def test_nonexistent_citations_are_separated():
+    from regcopilot.llm import ChatResult
+    from regcopilot.rag import finalise
+    res = ChatResult("", "m", 0, 0, 0.0)
+    a = finalise("q", "See [DORA Art. 99] and [DORA Art. 28].", [], res, known_units={"DORA-Art-28"})
+    assert a.ungrounded_citations == ["DORA-Art-99", "DORA-Art-28"]
+    assert a.nonexistent_citations == ["DORA-Art-99"]
 
 
 def test_citation_parsing():
@@ -77,6 +90,10 @@ def test_citation_parsing():
     text = "Deployers must assess impact [AI Act Art. 27(1)] and see [AI Act Annex III, point 5(c); DORA Art. 28(3)]."
     assert parse_citations(text) == ["AIA-Art-27", "AIA-Annex-III", "DORA-Art-28"]
     assert parse_citations("no citations here") == []
+    # parenthesised citations count too (they used to slip past both scoring and grounding)
+    assert parse_citations("Contracts must set SLAs (DORA Art. 30(2)) and exit plans (DORA Article 28(8)).") \
+        == ["DORA-Art-30", "DORA-Art-28"]
+    assert parse_citations("The DORA article in question and the AI Act annex cover this.") == []
     assert is_refusal("I can’t find this in the AI Act or DORA texts I have.")
 
 

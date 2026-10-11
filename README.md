@@ -45,7 +45,7 @@ flowchart LR
 | Retrieval | `index.py`, `bm25.py` | BM25 + dense embeddings fused with Reciprocal Rank Fusion. Named references ("DORA Article 28") are looked up directly. |
 | Generation | `rag.py`, `llm.py` | Strict grounding prompt with a fixed refusal sentence. One client interface for `mistral`, `ollama` and an offline `mock`. Plain HTTP, no SDK lock-in. |
 | Evaluation | `eval/` | 32 in-scope and 3 out-of-scope questions with expected Articles and reference answers. Optional LLM-as-judge. |
-| UI | `app.py` | Streamlit app with a hosted/sovereign toggle, a source viewer and links to EUR-Lex. |
+| UI | `app.py` | Streamlit app with a hosted/sovereign toggle, streaming answers, live citation verification chips, retrieval status and a source viewer with BM25/dense ranks and EUR-Lex links. |
 
 ## Quick start (macOS / Linux)
 
@@ -101,6 +101,7 @@ python eval/run_eval.py --backend mistral --embed none
 | MRR | How high the first correct source ranked |
 | cited correctly | The answer cites at least one expected Article/Annex |
 | grounded | Every citation refers to a source that was actually retrieved |
+| nonexistent cites | Citations to Articles/Annexes that don't exist in the regulation at all |
 | false refusals / OOS refused | Declines answerable questions (bad) vs declines out-of-scope ones (good) |
 | judge (1–5) | LLM-as-judge score against a hand-written reference answer |
 | latency, tokens, cost | Cost appears once you fill in `prices.json` (see `prices.example.json`) |
@@ -108,20 +109,23 @@ python eval/run_eval.py --backend mistral --embed none
 ### Results
 
 Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 out-of-scope), k=6, judge = `mistral-large-latest` scoring 1–5 against hand-written reference answers. Costs are actual token counts at La Plateforme list prices (Mistral Small $0.15/$0.60, Mistral Large $0.50/$1.50 per million input/output tokens).
-   model | backend | index | hit@6 % | MRR | cited correctly % | grounded % | false refusals % | OOS refused % | judge (1–5) | p50 latency s | cost ($) | per query ($) |
- |---|---|---|---|---|---|---|---|---|---|---|---|---|
- | mistral-small-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 90.6 | 100.0 | 0.0 | 100.0 | 4.81 | 1.47 | 0.015 | 0.0004 |
- | mistral-large-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 93.8 | 62.5 | 0.0 | 100.0 | 4.81 | 3.28 | 0.047 | 0.0013 |
- | mistral-small-latest | mistral | none (BM25) | 90.6 | 0.839 | 84.4 | 92.9 | 6.2 | 100.0 | 4.50 | 1.26 | 0.015 | 0.0004 |
- | mistral-large-latest | mistral | none (BM25) | 90.6 | 0.839 | 93.8 | 53.3 | 3.1 | 100.0 | 4.72 | 2.98 | 0.048 | 0.0014 |
+
+> **Hybrid rows are a fresh run (11 October 2026) with two fixes in place.** The citation parser now reads citations anywhere in the answer ("(DORA Art. 30(2))", not only `[square brackets]`), and system-prompt Rule 4 asks for dates only when the sources state them. The BM25-only rows predate the fixes; their `cited correctly` figures are re-scored offline from the saved answers with the fixed parser (retrieval metrics are unchanged by a parser fix). This run also added the `nonexistent cites` check: both models scored 0.
+
+| model | backend | index | hit@6 % | MRR | cited correctly % | grounded % | nonexistent cites | false refusals % | OOS refused % | judge (1–5) | p50 latency s | cost ($) | per query ($) |
+ |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+ | mistral-small-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 93.8 | 100.0 | 0 | 0.0 | 100.0 | 4.66 | 1.45 | 0.0147 | 0.0004 |
+ | mistral-large-latest | mistral | mistral (hybrid) | 93.8 | 0.938 | 93.8 | 93.8 | 0 | 0.0 | 100.0 | 4.78 | 2.71 | 0.0465 | 0.0013 |
+ | mistral-small-latest | mistral | none (BM25, re-scored) | 90.6 | 0.839 | 90.6 | 92.9 | – | 6.2 | 100.0 | 4.50 | 1.26 | 0.015 | 0.0004 |
+ | mistral-large-latest | mistral | none (BM25, re-scored) | 90.6 | 0.839 | 96.9 | 53.3 | – | 3.1 | 100.0 | 4.72 | 2.98 | 0.048 | 0.0014 |
 
 **Reading the table.**
 
-- **Hybrid retrieval earns its keep.** Hit@6 rises from 90.6% to 93.8% and false refusals fall from 6.2% to zero with both models — the embedding signal catches paraphrases BM25 misses, and the two signals never fight thanks to RRF fusion.
-- **Small matches large on quality at a fraction of the cost.** Judge scores are identical (4.81 vs 4.81); `mistral-small-latest` runs at roughly twice the speed (p50 1.47s vs 3.28s) and about a third of the cost. With retrieval doing the heavy lifting, the smaller model is sufficient — cheaper, faster and lower-carbon.
-- **Groundedness is the interesting failure mode.** Every citation from the small model traces to retrieved context (100% grounded). The large model, however, cites from memory in about four answers in ten (62.5% grounded) — most often padding answers with Article 113 (entry into force), which was never retrieved. For a regulated-domain assistant, a plausible citation with no retrieved evidence behind it is worse than a refusal, which is why the harness checks groundedness per answer rather than assuming it. Bigger models know more, and that is precisely the problem.
+- **Hybrid retrieval helps, but on a small sample.** Hit@6 rises from 90.6% to 93.8% and false refusals fall from 6.2% to zero with both models. With 32 in-scope questions that is one question, so treat it as a direction rather than a measured effect. Every hit also ranks first (MRR equals hit rate), which suggests the golden set is phrased close to the Article text and doesn't yet test ranking.
+- **Small matches large on quality at a fraction of the cost.** Judge scores are 4.66 vs 4.78, with the caveat that `mistral-large-latest` is also the judge; `mistral-small-latest` runs at roughly twice the speed (p50 1.45s vs 2.71s) and about a third of the cost. With retrieval doing the heavy lifting, the smaller model is sufficient — cheaper, faster and lower-carbon.
+- **Groundedness is the interesting failure mode.** In the earlier runs the large model padded answers with never-retrieved entry-into-force Articles (AI Act Art. 113, DORA Art. 64) and once cited DORA Art. 99, which does not exist — 62.5% grounded. The original prompt asked the model to say "from when" each obligation applies, which invited dates the retrieval rarely supplies; Rule 4 now allows dates only when they appear in the sources. In the fresh run the large model is 93.8% grounded and invents nothing: its two ungrounded citations (AI Act Art. 3 in aia-20, DORA Art. 16 in dora-05) are real Articles cited from memory rather than from the retrieved context. The small model remains 100% grounded. For a regulated-domain assistant, a plausible citation with no retrieved evidence behind it is worse than a refusal, which is why the harness checks grounding per answer — and now separately counts citations to Articles that don't exist. Bigger models know more, and that is precisely the problem.
 
-**Failure analysis.** Of the 35 questions, 32 in-scope questions were answered correctly
+**Failure analysis.** 30 of the 32 in-scope questions were answered correctly
 across both hosted models in the final run. The two persistent failures are both retrieval
 misses, not generation failures:
 
@@ -132,7 +136,11 @@ misses, not generation failures:
 - **aia-16** ("What are the maximum fines for using a prohibited AI practice?") — the
   expected source, Article 99(3) (up to €35M or 7% of worldwide turnover), was not retrieved.
   Both models cited the retrieved fines articles (100 and 101), which cover Union
-  institutions and general-purpose AI models respectively.
+  institutions and general-purpose AI models respectively. The small model's answer states
+  €1,500,000 — the Union-institutions cap from Article 100(2) — and the judge scored it
+  2/5: fully grounded in the retrieved context, confidently wrong. A grounded answer built
+  on incomplete retrieval is the most dangerous failure mode here, worse than a refusal,
+  and the citation check alone cannot catch it because every citation was retrieved.
 
 In both cases every citation was grounded in retrieved context — the models used exactly
 the evidence they were given. Both questions are phrased in language that differs from the
@@ -140,12 +148,14 @@ article text ("customer service chatbot" vs "AI systems intended to interact dir
 natural persons"), so neither lexical nor embedding ranking surfaces the right unit within
 the top 6, and neither query names a unit that the explicit lookup could boost. This is
 the motivation for the planned re-ranking step (scoring the top ~20 candidates with a small
-model before generation): RRF's candidate pool likely contains both articles, but fuses
-them below the final cut.
+model before generation). For aia-16 that should work: BM25 alone ranks Article 99 as the
+fifth unit, just below the cut. For aia-13 it may not: Article 50 is not in BM25's top 50
+chunks at all, so it depends on the dense ranking or on query rewriting.
 
-Persistent failure categories in the final run: retrieval misses 2, wrong citations 0,
-false refusals 0. The harness attributes each failure to its layer — the generation
-prompt needs no change.s
+Persistent failure categories in the fresh run: retrieval misses 2, false refusals 0,
+invented citations 0. The harness attributes each failure to its layer: these two are
+retrieval problems; the large model's earlier ungrounded date citations were a prompt
+problem, fixed by Rule 4.
 
 The Ollama (sovereign mode) row is pending; the hosted vs local comparison will be added once it has been run on target hardware.
 

@@ -11,6 +11,7 @@ Metrics
   MRR               mean reciprocal rank of the first expected source
   cited correctly   the answer cites at least one expected Article/Annex
   grounded          every citation points to a source that was actually retrieved (no invented citations)
+  nonexistent cites citations to Articles/Annexes that don't exist in the regulation at all
   false refusals    in-scope questions the model wrongly declined
   OOS refusals      out-of-scope questions correctly declined
   judge (1-5)       optional LLM-as-judge score against the hand-written reference answer
@@ -68,7 +69,8 @@ def evaluate(backend: str, model: str, index: Index, golden: list[dict], k: int,
         row = {
             "id": g["id"], "topic": g.get("topic", ""), "question": g["question"], "out_of_scope": oos,
             "answer": a.text, "refused": a.refused, "citations": a.citations,
-            "ungrounded": a.ungrounded_citations, "retrieved": a.retrieved_units,
+            "ungrounded": a.ungrounded_citations, "nonexistent": a.nonexistent_citations,
+            "retrieved": a.retrieved_units,
             "hit": bool(ranks) if not oos else None,
             "rr": (1.0 / (ranks[0] + 1) if ranks else 0.0) if not oos else None,
             "cited_expected": bool(expected & set(a.citations)) if not oos else None,
@@ -100,6 +102,7 @@ def summarise(rows: list[dict], model: str) -> dict:
         "MRR": round(statistics.mean(r["rr"] for r in ins), 3) if ins else None,
         "cited correctly %": pct([r["cited_expected"] for r in ins]),
         "grounded %": pct([not r["ungrounded"] for r in rows if r["citations"]]),
+        "nonexistent cites": sum(len(r.get("nonexistent", [])) for r in rows),
         "false refusals %": pct([r["refused"] for r in ins]),
         "OOS refused %": pct([r["refused"] for r in oos]),
         "judge (1-5)": round(statistics.mean(judged), 2) if judged else None,

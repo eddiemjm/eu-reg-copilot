@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from itertools import zip_longest
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +43,7 @@ class Index:
             norms = np.linalg.norm(vectors, axis=1, keepdims=True)
             self.vectors = vectors / np.maximum(norms, 1e-9)
         self.bm25 = BM25([c["text"] for c in chunks])
+        self.unit_ids = {c["unit_id"] for c in chunks}
         self._client = None
 
     # ---------- build / persist ----------
@@ -130,13 +132,18 @@ class Index:
             for i, r in ranks.items():
                 fused[i] = fused.get(i, 0.0) + 1.0 / (rrf_k + r + 1)
 
-        # Boost Articles/Annexes the user named explicitly.
-        named = set(self._explicit_refs(query))
+        # Boost Articles/Annexes the user named explicitly. Take their chunks round-robin, in
+        # reading order, and leave two slots for ordinary retrieval so one long Article can't
+        # fill the whole context.
+        named = dict.fromkeys(self._explicit_refs(query))
+        boosted: list[int] = []
         if named:
+            by_unit = [[i for i, c in enumerate(self.chunks) if c["unit_id"] == u] for u in named]
+            boosted = [i for row in zip_longest(*by_unit) for i in row if i is not None][:max(1, k - 2)]
             top = max(fused.values(), default=0.0) + 1.0
-            for i, c in enumerate(self.chunks):
-                if c["unit_id"] in named:
-                    fused[i] = top + fused.get(i, 0.0)
+            for i in boosted:
+                fused[i] = top + fused.get(i, 0.0)
 
-        order = sorted(fused, key=lambda i: -fused[i])[:k]
+        rest = sorted((i for i in fused if i not in boosted), key=lambda i: -fused[i])
+        order = (boosted + rest)[:k]
         return [Hit(self.chunks[i], fused[i], bm_rank.get(i), dn_rank.get(i)) for i in order]

@@ -28,10 +28,20 @@ class ChatResult:
     latency_s: float
 
 
-def _post_stream(url: str, payload: dict, headers: dict | None = None, timeout: int = 120):
-    """POST with SSE streaming; yield each JSON chunk as it arrives."""
-    with requests.post(url, json={**payload, "stream": True},
-                       headers=headers or {}, stream=True, timeout=timeout) as resp:
+def _post_stream(url: str, payload: dict, headers: dict | None = None, timeout: int = 120, retries: int = 6):
+    """POST with SSE streaming; yield each JSON chunk as it arrives. Retries like _post(), but
+    only before the first byte: a stream that fails midway can't be replayed."""
+    delay = 1.0
+    for attempt in range(retries):
+        resp = requests.post(url, json={**payload, "stream": True},
+                             headers=headers or {}, stream=True, timeout=timeout)
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries - 1:
+            resp.close()
+            time.sleep(delay)
+            delay = min(delay * 2, 30)
+            continue
+        break
+    with resp:
         if resp.status_code >= 400:
             raise RuntimeError(f"{url} returned {resp.status_code}: {resp.text[:500]}")
         for line in resp.iter_lines(decode_unicode=True):
