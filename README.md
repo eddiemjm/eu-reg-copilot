@@ -70,6 +70,26 @@ streamlit run app.py
 python -m regcopilot fetch --refresh -v   # show every route tried and which one worked
 ```
 
+## Quick start (Windows)
+
+The pipeline is pure Python with no platform-specific code, so the same steps run on Windows (PowerShell); only the venv activation differs. CI runs the offline tests on Linux, so Windows isn't separately CI-tested:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1              # if scripts are blocked: Set-ExecutionPolicy -Scope Process RemoteSigned
+pip install -r requirements.txt
+Copy-Item .env.example .env             # then add your MISTRAL_API_KEY
+
+python tests\test_pipeline.py           # offline tests, no key needed
+
+python -m regcopilot ingest             # fetches + parses both regulations into data\chunks.json
+python eval\verify_golden.py            # checks the eval set against the ingested text
+python -m regcopilot index --embed mistral
+
+python -m regcopilot ask "Does an insurer pricing life cover with AI need a fundamental rights impact assessment?"
+streamlit run app.py
+```
+
 ## The app
 
 `streamlit run app.py` opens four pages.
@@ -93,7 +113,7 @@ In sovereign mode the app runs entirely on your machine. It loads no web fonts o
 ### Sovereign mode (everything local)
 
 ```bash
-brew install ollama && ollama serve          # or see ollama.com for Linux
+brew install ollama && ollama serve          # or see ollama.com for Linux and Windows installers
 ollama pull mistral-nemo                     # open-weight Mistral model (needs ~16 GB)
 ollama pull nomic-embed-text                 # local embedding model
 python -m regcopilot index --embed ollama
