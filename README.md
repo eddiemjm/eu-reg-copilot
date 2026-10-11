@@ -1,5 +1,7 @@
 # EU AI Act & DORA Copilot
 
+![tests](https://github.com/eddiemjm/eu-reg-copilot/actions/workflows/tests.yml/badge.svg)
+
 A retrieval-augmented assistant that answers questions about the **EU AI Act** (Regulation (EU) 2024/1689) and **DORA** (Regulation (EU) 2022/2554), with a citation to the exact Article or Annex for every claim. It runs on Mistral models, either through **La Plateforme** or **fully on your own machine** with open-weight models ("sovereign mode"). It comes with an **evaluation harness** that measures retrieval quality, citation accuracy, groundedness and refusals across models.
 
 > Built for European financial-services teams who need to understand their AI and ICT-resilience obligations, and who shouldn't have to send regulatory questions to infrastructure outside their control to get answers.
@@ -118,6 +120,32 @@ Measured 9–11 October 2026 against the 35-question golden set (32 in-scope, 3 
 - **Hybrid retrieval earns its keep.** Hit@6 rises from 90.6% to 93.8% and false refusals fall from 6.2% to zero with both models — the embedding signal catches paraphrases BM25 misses, and the two signals never fight thanks to RRF fusion.
 - **Small matches large on quality at a fraction of the cost.** Judge scores are identical (4.81 vs 4.81); `mistral-small-latest` runs at roughly twice the speed (p50 1.47s vs 3.28s) and about a third of the cost. With retrieval doing the heavy lifting, the smaller model is sufficient — cheaper, faster and lower-carbon.
 - **Groundedness is the interesting failure mode.** Every citation from the small model traces to retrieved context (100% grounded). The large model, however, cites from memory in about four answers in ten (62.5% grounded) — most often padding answers with Article 113 (entry into force), which was never retrieved. For a regulated-domain assistant, a plausible citation with no retrieved evidence behind it is worse than a refusal, which is why the harness checks groundedness per answer rather than assuming it. Bigger models know more, and that is precisely the problem.
+
+**Failure analysis.** Of the 35 questions, 32 in-scope questions were answered correctly
+across both hosted models in the final run. The two persistent failures are both retrieval
+misses, not generation failures:
+
+- **aia-13** ("Does a customer service chatbot have to tell people they are talking to an AI?")
+  — the expected source, Article 50(1) on transparency for AI systems interacting with
+  natural persons, was not retrieved. Both models answered from Article 26(11) (high-risk
+  transparency), the closest retrieved alternative, and were marked down for it.
+- **aia-16** ("What are the maximum fines for using a prohibited AI practice?") — the
+  expected source, Article 99(3) (up to €35M or 7% of worldwide turnover), was not retrieved.
+  Both models cited the retrieved fines articles (100 and 101), which cover Union
+  institutions and general-purpose AI models respectively.
+
+In both cases every citation was grounded in retrieved context — the models used exactly
+the evidence they were given. Both questions are phrased in language that differs from the
+article text ("customer service chatbot" vs "AI systems intended to interact directly with
+natural persons"), so neither lexical nor embedding ranking surfaces the right unit within
+the top 6, and neither query names a unit that the explicit lookup could boost. This is
+the motivation for the planned re-ranking step (scoring the top ~20 candidates with a small
+model before generation): RRF's candidate pool likely contains both articles, but fuses
+them below the final cut.
+
+Persistent failure categories in the final run: retrieval misses 2, wrong citations 0,
+false refusals 0. The harness attributes each failure to its layer — the generation
+prompt needs no change.s
 
 The Ollama (sovereign mode) row is pending; the hosted vs local comparison will be added once it has been run on target hardware.
 
