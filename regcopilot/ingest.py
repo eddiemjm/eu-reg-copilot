@@ -48,6 +48,8 @@ def ingest(sources: list[str] | None = None, html_paths: dict[str, Path] | None 
         supplied = (html_paths or {}).get(src)
         chunks: list[dict]
         if snapshot and supplied is None:
+            if include_recitals:
+                raise RuntimeError("the committed snapshot contains no recitals; fetch the texts instead")
             snap = _snapshot(src, max_words)
             if snap is None:
                 raise RuntimeError(f"no committed snapshot for {src}; run without --snapshot to fetch it")

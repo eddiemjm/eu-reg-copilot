@@ -110,6 +110,14 @@ def test_citation_parsing():
     # describing what the sources don't contain, without figures, is still a refusal
     assert is_refusal("I can't find this in the AI Act or DORA texts I have. The sources provided do "
                       "not contain information about the 2022 FIFA World Cup.")
+    # a partly answered reply that cites something is an answer, not a refusal
+    assert not is_refusal("I can't find a specific deadline in the sources, but providers must register "
+                          "the system [AI Act Art. 49(1)].")
+    # additions from memory leak even without figures: obligations or dates after the decline
+    assert not is_refusal("I can't find this in the AI Act or DORA texts I have. Under the GDPR, a "
+                          "controller must notify the supervisory authority without undue delay.")
+    assert not is_refusal("I can't find this in the AI Act or DORA texts I have. The obligation applies "
+                          "from 2 August 2026.")
 
 
 def test_eval_metrics_on_mock():
@@ -240,6 +248,18 @@ def test_ingest_snapshot_mode():
         raise AssertionError("should have refused")
     except RuntimeError as e:
         assert "max_words" in str(e)
+
+
+def test_eval_summary_with_error_rows():
+    sys.path.insert(0, str(ROOT / "eval"))
+    from run_eval import summarise
+    row = {"id": "x", "out_of_scope": False, "hit": True, "rr": 1.0, "cited_expected": True,
+           "citations": ["AIA-Art-1"], "ungrounded": [], "nonexistent": [], "refused": False,
+           "prompt_tokens": 10, "completion_tokens": 5, "latency_s": 1.0}
+    err = dict(row, id="y", hit=None, rr=None, cited_expected=None, refused=None, citations=[],
+               error="context guard")
+    s = summarise([row, err], "m")
+    assert s["n"] == 2 and s["hit@k %"] == 100.0 and s["false refusals %"] == 0.0  # Nones excluded
 
 
 def test_ollama_context_guard():

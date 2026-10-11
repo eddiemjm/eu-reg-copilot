@@ -74,7 +74,7 @@ python -m regcopilot fetch --refresh -v   # show every route tried and which one
 
 ## Quick start (Windows)
 
-The pipeline is pure Python with no platform-specific code, so the same steps run on Windows (PowerShell); only the venv activation differs. CI runs the offline tests on Linux, so Windows isn't separately CI-tested:
+The pipeline is pure Python with no platform-specific code, so the same steps run on Windows (PowerShell); only the venv activation differs. CI runs the offline tests on Linux and Windows, on Python 3.9 and 3.12:
 
 ```powershell
 python -m venv .venv
@@ -215,7 +215,7 @@ Token counts for the sovereign run are not comparable with the hosted rows (Olla
 
 - **Structure over sliding windows.** Lawyers cite Articles, so retrieval units are Articles. That makes citations checkable and lets the eval score retrieval against a known right answer.
 - **Hybrid retrieval.** Regulatory users type exact terms of art ("register of information", "TLPT"). BM25 catches those, embeddings catch paraphrases ("can my boss use AI to read my mood?"), and RRF combines them without tuning weights.
-- **Refusal is a feature.** A fixed refusal sentence makes "I don't know" measurable. The out-of-scope questions check that the model doesn't answer GDPR questions from AI Act text. The detector accepts paraphrased declines, and rejects a decline followed by figures from memory — refusing in words and then answering anyway is a failure, not a refusal.
+- **Refusal is a feature.** A fixed refusal sentence makes "I don't know" measurable. The out-of-scope questions check that the model doesn't answer GDPR questions from AI Act text. The detector accepts paraphrased declines, treats a reply that cites anything as an answer rather than a refusal, and requires every sentence after a decline to be about the sources — refusing in words and then adding obligations, figures or dates from memory is a failure, not a refusal.
 - **Citation verification.** The answer is checked after generation: any citation that wasn't in the retrieved context is flagged as ungrounded.
 - **Backend-agnostic, minimal dependencies.** Plain HTTP to La Plateforme and Ollama keeps the code easy to audit, which matters in regulated environments.
 

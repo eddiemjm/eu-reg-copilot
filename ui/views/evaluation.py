@@ -152,6 +152,8 @@ golden = {g["id"]: g for g in map(json.loads, (config.ROOT / "eval" / "golden.js
 
 
 def _outcome(r: dict) -> tuple[bool, str]:
+    if r.get("error"):
+        return False, f"error: {r['error'][:60]}"
     if r["out_of_scope"]:
         return (True, "declined out-of-scope") if r["refused"] else (False, "answered out-of-scope")
     if r["refused"]:

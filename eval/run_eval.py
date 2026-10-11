@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from regcopilot import config  # noqa: E402
 from regcopilot.index import Index  # noqa: E402
 from regcopilot.llm import get_client  # noqa: E402
-from regcopilot.rag import answer  # noqa: E402
+from regcopilot.rag import finalise, prepare  # noqa: E402
 from verify_golden import load_golden  # noqa: E402
 
 JUDGE_PROMPT = """You are grading an answer about EU regulation against a reference answer written by an expert.
@@ -62,33 +62,59 @@ def evaluate(backend: str, model: str, index: Index, golden: list[dict], k: int,
     client = get_client(backend)
     rows = []
     for g in golden:
-        a = answer(g["question"], index, client, model=model, k=k)
         oos = bool(g.get("out_of_scope"))
         expected = set(g.get("expected", []))
-        ranks = [i for i, u in enumerate(a.retrieved_units) if u in expected]
+        # A failed question must not kill the run: retrieval metrics are computed whenever
+        # retrieval succeeded, and generation failures become error rows.
+        try:
+            hits, messages = prepare(g["question"], index, k=k)
+        except Exception as e:
+            rows.append({"id": g["id"], "topic": g.get("topic", ""), "question": g["question"],
+                         "out_of_scope": oos, "answer": "", "refused": None, "citations": [],
+                         "ungrounded": [], "nonexistent": [], "retrieved": [], "hit": None,
+                         "rr": None, "cited_expected": None, "prompt_tokens": 0,
+                         "completion_tokens": 0, "latency_s": 0.0, "error": str(e).splitlines()[0][:200]})
+            print(f"  XX {g['id']:8} retrieval error: {str(e).splitlines()[0][:80]}")
+            continue
+        retrieved = list(dict.fromkeys(h.chunk["unit_id"] for h in hits))
+        ranks = [i for i, u in enumerate(retrieved) if u in expected]
         row = {
             "id": g["id"], "topic": g.get("topic", ""), "question": g["question"], "out_of_scope": oos,
-            "answer": a.text, "refused": a.refused, "citations": a.citations,
-            "ungrounded": a.ungrounded_citations, "nonexistent": a.nonexistent_citations,
-            "retrieved": a.retrieved_units,
+            "retrieved": retrieved,
             "hit": bool(ranks) if not oos else None,
             "rr": (1.0 / (ranks[0] + 1) if ranks else 0.0) if not oos else None,
-            "cited_expected": bool(expected & set(a.citations)) if not oos else None,
-            "prompt_tokens": a.prompt_tokens, "completion_tokens": a.completion_tokens,
-            "latency_s": round(a.latency_s, 3),
         }
-        if judge_client is not None and not oos:
-            row["judge"], row["judge_reason"] = judge(judge_client, judge_model, g["question"], g["reference"], a.text)
+        try:
+            res = client.chat(messages, model=model)
+            a = finalise(g["question"], res.text, hits, res, known_units=index.unit_ids)
+            row.update({
+                "answer": a.text, "refused": a.refused, "citations": a.citations,
+                "ungrounded": a.ungrounded_citations, "nonexistent": a.nonexistent_citations,
+                "cited_expected": bool(expected & set(a.citations)) if not oos else None,
+                "prompt_tokens": a.prompt_tokens, "completion_tokens": a.completion_tokens,
+                "latency_s": round(a.latency_s, 3),
+            })
+            if judge_client is not None and not oos:
+                row["judge"], row["judge_reason"] = judge(judge_client, judge_model, g["question"],
+                                                          g["reference"], a.text)
+            flag = "OK " if (row["refused"] if oos else row["cited_expected"]) else "-- "
+            print(f"  {flag}{g['id']:8} {a.latency_s:5.1f}s  cites={','.join(a.citations) or '-'}")
+        except Exception as e:
+            row.update({
+                "answer": "", "refused": None, "citations": [], "ungrounded": [],
+                "nonexistent": [], "cited_expected": None, "prompt_tokens": 0,
+                "completion_tokens": 0, "latency_s": 0.0, "error": str(e).splitlines()[0][:200],
+            })
+            print(f"  XX {g['id']:8} error: {str(e).splitlines()[0][:80]}")
         rows.append(row)
-        flag = "OK " if (row["refused"] if oos else row["cited_expected"]) else "-- "
-        print(f"  {flag}{g['id']:8} {a.latency_s:5.1f}s  cites={','.join(a.citations) or '-'}")
     return rows, summarise(rows, model)
 
 
 def summarise(rows: list[dict], model: str) -> dict:
     ins = [r for r in rows if not r["out_of_scope"]]
     oos = [r for r in rows if r["out_of_scope"]]
-    pct = lambda xs: round(100 * sum(xs) / len(xs), 1) if xs else None  # noqa: E731
+    pct = lambda xs: round(100 * sum(1 for x in xs if x) / len(xs), 1) if xs else None  # noqa: E731
+    non_null = lambda key, rows_: [r[key] for r in rows_ if r.get(key) is not None]  # noqa: E731
     judged = [r["judge"] for r in ins if r.get("judge") is not None]
     prices = config.load_prices().get(model)
     tin = sum(r["prompt_tokens"] for r in rows)
@@ -98,13 +124,13 @@ def summarise(rows: list[dict], model: str) -> dict:
         cost = round(tin / 1e6 * prices["input_per_m"] + tout / 1e6 * prices["output_per_m"], 4)
     return {
         "model": model, "n": len(rows),
-        "hit@k %": pct([r["hit"] for r in ins]),
-        "MRR": round(statistics.mean(r["rr"] for r in ins), 3) if ins else None,
-        "cited correctly %": pct([r["cited_expected"] for r in ins]),
+        "hit@k %": pct(non_null("hit", ins)),
+        "MRR": round(statistics.mean(non_null("rr", ins)), 3) if any(r.get("rr") is not None for r in ins) else None,
+        "cited correctly %": pct(non_null("cited_expected", ins)),
         "grounded %": pct([not r["ungrounded"] for r in rows if r["citations"]]),
         "nonexistent cites": sum(len(r.get("nonexistent", [])) for r in rows),
-        "false refusals %": pct([r["refused"] for r in ins]),
-        "OOS refused %": pct([r["refused"] for r in oos]),
+        "false refusals %": pct(non_null("refused", ins)),
+        "OOS refused %": pct(non_null("refused", oos)),
         "judge (1-5)": round(statistics.mean(judged), 2) if judged else None,
         "p50 latency s": round(statistics.median(r["latency_s"] for r in rows), 2) if rows else None,
         "tokens in/out": f"{tin}/{tout}",

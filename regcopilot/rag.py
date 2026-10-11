@@ -101,17 +101,27 @@ def parse_citations(text: str) -> list[str]:
     return ids
 
 
-# A refusal declines to answer from the texts. A decline can be paraphrased ("I can't find
-# the X in the provided AI Act or DORA texts"), so the decline is a pattern, not a fixed
-# sentence - but a decline followed by figures (percentages, money, millions) means the
-# model answered from memory after refusing, which is a failure, not a refusal.
+# A refusal declines to answer from the texts - nothing more. Three rules:
+#   1. the decline itself can be paraphrased ("I can't find the X in the provided texts")
+#   2. an answer that cites something is an answer, not a refusal, however apologetic
+#   3. every sentence after the decline must be about the sources (what they contain or
+#      lack); any sentence adding content - figures, dates, obligations - is a leak from
+#      memory, and refusing in words then answering anyway is a failure, not a refusal
 RE_DECLINE = re.compile(r"can(?:'t|not)\s+find\b[^.]*\b(?:texts?|sources?)", re.I)
-RE_OUTSIDE_FACT = re.compile(r"\d+\s*%|eur\s*[\d,.]+|€\s*[\d,.]+|\b(?:million|billion)\b", re.I)
+RE_ABOUT_SOURCES = re.compile(r"\bsources?\b|\btexts?\b|provided|contain|mention|among|pertain", re.I)
 
 
 def is_refusal(text: str) -> bool:
     t = text.lower().replace("’", "'")
-    return bool(RE_DECLINE.search(t)) and not RE_OUTSIDE_FACT.search(t)
+    m = RE_DECLINE.search(t)
+    if not m or RE_CITE.search(text):
+        return False
+    after = t[m.end():]
+    stop = re.search(r"[.!?](?:\s|$)", after)
+    for sentence in re.split(r"[.!?]+(?:\s|$)", after[stop.end():] if stop else ""):
+        if sentence.strip() and not RE_ABOUT_SOURCES.search(sentence):
+            return False
+    return True
 
 
 def prepare(question: str, index: Index, k: int = config.TOP_K):
