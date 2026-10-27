@@ -2,21 +2,22 @@
 
 ![tests](https://github.com/eddiemjm/eu-reg-copilot/actions/workflows/tests.yml/badge.svg)
 
-A retrieval-augmented assistant that answers questions about the **EU AI Act** (Regulation (EU) 2024/1689) and **DORA** (Regulation (EU) 2022/2554), with a citation to the exact Article or Annex for every claim. It runs on Mistral models, either through **La Plateforme** or **fully on your own machine** with open-weight models ("sovereign mode"). It comes with an **evaluation harness** that measures retrieval quality, citation accuracy, groundedness and refusals across models.
+A retrieval-augmented assistant that answers questions about the **EU AI Act** (Regulation (EU) 2024/1689) and **DORA** (Regulation (EU) 2022/2554), with a citation to the exact Article or Annex for every claim. The model layer is pluggable: the reference implementation supports a hosted API (Mistral) and a fully local open-weight model (Ollama), and adding another provider means writing one small client class. It comes with an **evaluation harness** that measures retrieval quality, citation accuracy, groundedness and refusals across models and deployment modes.
 
-> Built for European financial-services teams who need to understand their AI and ICT-resilience obligations, and who shouldn't have to send regulatory questions to infrastructure outside their control to get answers.
+> An end-to-end example of taking a customer problem, in this case regulatory Q&A for European financial-services teams, from discovery to a measured, deployable AI solution.
 
 **Results at a glance** (35-question golden set, full table and method under [Evaluation](#evaluation)): 93.8% of expected Articles retrieved; `mistral-small` matches `mistral-large` on judged quality (4.66 vs 4.78) at roughly twice the speed and a third of the cost; every citation is checked against the retrieved text, with invented Articles counted separately; and a 7B open-weight model running fully on an 8 GB Mac mini judges 4.69/5 with zero invented citations — sovereignty works on ordinary hardware, at ~30× the latency.
 
-## Why
+## The customer problem
 
-European banks and insurers now sit under two major regulations at once. The AI Act governs how they build and use AI, and it treats credit scoring and life and health insurance pricing as high-risk. DORA governs their ICT risk, incident reporting and third-party providers. Compliance, risk and architecture teams ask questions that cut across both, and they need answers they can verify.
+European banks and insurers now sit under two major regulations at once. The AI Act governs how they build and use AI, and it treats credit scoring and life and health insurance pricing as high-risk. DORA governs their ICT risk, incident reporting and third-party providers. Compliance, risk and architecture teams ask questions that cut across both, and they need answers they can verify, not answers they have to trust.
 
-This project shows three things:
+## What this project demonstrates
 
-1. **Grounded, checkable answers.** Retrieval follows the structure of the law. Every answer cites Articles, and the app flags any citation that wasn't actually retrieved.
-2. **Deployment choice.** The same pipeline runs on the hosted Mistral API or on a local open-weight model with nothing leaving the machine. That is the deployment model regulated European institutions increasingly need.
-3. **Measured quality.** A golden set of 35 questions and a metrics harness compare models and modes, so choosing a model rests on evidence rather than vibes. Running a small model where it's good enough is also cheaper and lower-carbon.
+1. **Grounded, checkable answers.** Retrieval follows the structure of the law. Every answer cites Articles, and the app flags any citation that wasn't actually retrieved. Refusing to answer is a designed, measurable behaviour.
+2. **Evaluation before opinion.** A golden set of 35 questions and a metrics harness compare models, retrieval strategies and deployment modes, so choices rest on evidence. A smaller model is chosen where it is good enough, which is cheaper, faster and lower-carbon.
+3. **Deployment fit.** The same pipeline runs against a hosted API or a local model with nothing leaving the machine. The right choice depends on the customer's data sensitivity, latency, cost and security constraints, and the code makes that a configuration decision rather than a rewrite.
+4. **Deployable and handover-ready.** CLI, UI, offline tests with a mock backend, documented rules for change and a handover document, so a customer team can own it after the engagement.
 
 ## Architecture
 
@@ -112,7 +113,7 @@ streamlit run app.py
 
 In sovereign mode the app runs entirely on your machine. It loads no web fonts or CDN assets, the favicon is drawn locally, and Streamlit's usage statistics are switched off in `.streamlit/config.toml`. The hybrid index built with `mistral-embed` isn't offered in sovereign mode, because using it would send every query to the API.
 
-### Sovereign mode (everything local)
+### Local mode (everything on your machine, a.k.a. sovereign mode)
 
 ```bash
 brew install ollama && ollama serve          # or see ollama.com for Linux and Windows installers
@@ -218,6 +219,16 @@ Token counts for the sovereign run are not comparable with the hosted rows (Olla
 - **Refusal is a feature.** A fixed refusal sentence makes "I don't know" measurable. The out-of-scope questions check that the model doesn't answer GDPR questions from AI Act text. The detector accepts paraphrased declines, treats a reply that cites anything as an answer rather than a refusal, and requires every sentence after a decline to be about the sources — refusing in words and then adding obligations, figures or dates from memory is a failure, not a refusal.
 - **Citation verification.** The answer is checked after generation: any citation that wasn't in the retrieved context is flagged as ungrounded.
 - **Backend-agnostic, minimal dependencies.** Plain HTTP to La Plateforme and Ollama keeps the code easy to audit, which matters in regulated environments.
+
+## Deployment considerations
+
+How I'd approach this with a real customer, beyond the code:
+
+- **Data sensitivity.** Public law is low risk, but real questions can reveal strategy or customer details. Hosted API vs local model is decided by the customer's data classification, residency rules and vendor-risk process.
+- **Quality bar before rollout.** Agree success metrics (citation accuracy, false-refusal rate, judge score) and a target on the golden set with compliance stakeholders before anyone depends on it. Expand the golden set with the customer's real questions.
+- **Human in the loop.** Answers are decision support, not legal advice. Citations and source links let a reviewer verify in seconds.
+- **Keeping it current.** Regulations get amended and supplemented by technical standards. Re-ingestion is one command, and fetch provenance (URL, SHA-256, date) is recorded.
+- **Ownership.** Offline tests, documented change rules and a handover doc so the customer team can maintain and extend it.
 
 ## Limitations
 
