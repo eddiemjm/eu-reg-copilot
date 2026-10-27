@@ -75,7 +75,7 @@ python -m regcopilot fetch --refresh -v   # show every route tried and which one
 
 ## Quick start (Windows)
 
-The pipeline is pure Python with no platform-specific code, so the same steps run on Windows (PowerShell); only the venv activation differs. CI runs the offline tests on Linux and Windows, on Python 3.9 and 3.12:
+The pipeline is pure Python with no platform-specific code, so the same steps run on Windows (PowerShell); only the venv activation differs. CI runs the offline tests on Linux (Python 3.10 and 3.12) and Windows (Python 3.9 and 3.12):
 
 ```powershell
 python -m venv .venv
